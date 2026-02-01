@@ -25,6 +25,8 @@ import VerificationDetailPage from "@/pages/VerificationDetail";
 import CAPAPage from "@/pages/CAPA";
 import CAPADetailPage from "@/pages/CAPADetail";
 import IncidentsPage from "@/pages/Incidents";
+import IncidentCreatePage from "@/pages/IncidentCreate";
+import IncidentDetailPage from "@/pages/IncidentDetail";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
 import ProfilePage from "@/pages/Profile";
@@ -71,6 +73,8 @@ const App = () => (
               <Route path="/capa" element={<CAPAPage />} />
               <Route path="/capa/:id" element={<CAPADetailPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
+              <Route path="/incidents/create" element={<IncidentCreatePage />} />
+              <Route path="/incidents/:id" element={<IncidentDetailPage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
