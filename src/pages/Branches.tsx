@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EntityStatusBadge } from '@/components/entities/EntityStatusBadge';
-import { HealthScoreBadge } from '@/components/entities/HealthScoreBadge';
+import { HealthScoreIndicator } from '@/components/entities/HealthScoreIndicator';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { BranchModal } from '@/components/branches/BranchModal';
 import { Branch, Region } from '@/types';
@@ -342,7 +342,7 @@ export default function BranchesPage() {
                       {manager ? manager.full_name : <span className="text-muted-foreground">Unassigned</span>}
                     </TableCell>
                     <TableCell>
-                      <HealthScoreBadge score={branch.health_score} hasAudits={!!branch.last_audit_date} />
+                      <HealthScoreIndicator score={branch.health_score} entityType="branch" size="sm" hasAudits={!!branch.last_audit_date} />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatLastAudit(branch.last_audit_date)}

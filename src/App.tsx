@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
+import { checkAndRunBatchIfNeeded } from "@/lib/healthScoreEngine";
 
 // Pages
 import LoginPage from "@/pages/Login";
@@ -34,10 +36,20 @@ import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Component to run batch health score check on app load
+function HealthScoreBatchCheck() {
+  useEffect(() => {
+    // Run silently in background on app load
+    checkAndRunBatchIfNeeded();
+  }, []);
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
+        <HealthScoreBatchCheck />
         <Toaster />
         <Sonner />
         <BrowserRouter>

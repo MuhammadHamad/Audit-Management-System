@@ -461,6 +461,9 @@ export const resolveIncident = (
   resolutionNotes: string,
   userId: string
 ): boolean => {
+  // Import dynamically to avoid circular dependency
+  const { recalculateAndSaveHealthScore } = require('./healthScoreEngine');
+  
   const incident = getIncidentById(incidentId);
   if (!incident || incident.status !== 'under_investigation') return false;
 
@@ -491,6 +494,9 @@ export const resolveIncident = (
       });
     }
   }
+
+  // Trigger health score recalculation for the affected entity
+  recalculateAndSaveHealthScore(incident.entity_type, incident.entity_id);
 
   return true;
 };

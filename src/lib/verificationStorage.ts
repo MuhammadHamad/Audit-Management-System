@@ -287,6 +287,9 @@ export const approveAudit = (
   auditId: string,
   verifierId: string
 ): { success: boolean; error?: string } => {
+  // Import dynamically to avoid circular dependency
+  const { recalculateAndSaveHealthScore } = require('./healthScoreEngine');
+  
   const audit = getAudits().find(a => a.id === auditId);
   if (!audit) return { success: false, error: 'Audit not found' };
 
@@ -316,8 +319,8 @@ export const approveAudit = (
     });
   }
 
-  // Trigger health score recalculation
-  recalculateHealthScore(audit.entity_type, audit.entity_id);
+  // Trigger health score recalculation using the shared engine
+  recalculateAndSaveHealthScore(audit.entity_type as 'branch' | 'bck' | 'supplier', audit.entity_id);
 
   return { success: true };
 };
@@ -348,204 +351,11 @@ export const flagAudit = (
   return { success: true };
 };
 
-// ============= HEALTH SCORE CALCULATION =============
-const HEALTH_SCORES_KEY = 'burgerizzr_health_scores';
-
-export interface HealthScoreRecord {
-  id: string;
-  entity_type: 'branch' | 'bck' | 'supplier';
-  entity_id: string;
-  score: number;
-  components: Record<string, number>;
-  calculated_at: string;
-}
-
-export const getHealthScores = (): HealthScoreRecord[] => {
-  const data = localStorage.getItem(HEALTH_SCORES_KEY);
-  return data ? JSON.parse(data) : [];
-};
-
-export const upsertHealthScore = (record: Omit<HealthScoreRecord, 'id'>): HealthScoreRecord => {
-  const scores = getHealthScores();
-  const existingIndex = scores.findIndex(
-    s => s.entity_type === record.entity_type && s.entity_id === record.entity_id
-  );
-
-  const newRecord: HealthScoreRecord = {
-    ...record,
-    id: existingIndex >= 0 ? scores[existingIndex].id : crypto.randomUUID(),
-  };
-
-  if (existingIndex >= 0) {
-    scores[existingIndex] = newRecord;
-  } else {
-    scores.push(newRecord);
-  }
-
-  localStorage.setItem(HEALTH_SCORES_KEY, JSON.stringify(scores));
-  return newRecord;
-};
-
-export const recalculateHealthScore = (
-  entityType: 'branch' | 'bck' | 'supplier',
-  entityId: string
-): number => {
-  const now = new Date();
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-
-  const approvedAudits = getAudits().filter(a =>
-    a.status === 'approved' &&
-    a.entity_id === entityId &&
-    a.entity_type === entityType &&
-    new Date(a.completed_at || a.updated_at) >= ninetyDaysAgo
-  );
-
-  const allCapas = getCAPAs().filter(c =>
-    c.entity_id === entityId &&
-    c.entity_type === entityType
-  );
-
-  const closedCapas = allCapas.filter(c => c.status === 'closed');
-
-  let score = 0;
-  const components: Record<string, number> = {};
-
-  if (entityType === 'branch') {
-    // audit_performance (40%)
-    const avgScore = approvedAudits.length > 0
-      ? approvedAudits.reduce((sum, a) => sum + (a.score || 0), 0) / approvedAudits.length
-      : 0;
-    components.audit_performance = avgScore;
-
-    // capa_completion (25%)
-    const onTimeCapas = closedCapas.filter(c => {
-      const activities = getCAPAActivitiesByCAPAId(c.id);
-      const closedActivity = activities.find(a => a.action === 'approved' || a.action === 'auto_approved');
-      if (!closedActivity) return true;
-      return closedActivity.created_at <= c.due_date + 'T23:59:59';
-    });
-    components.capa_completion = closedCapas.length > 0
-      ? (onTimeCapas.length / closedCapas.length) * 100
-      : 100;
-
-    // repeat_findings (15%)
-    const recentFindings = getFindings().filter(f => {
-      const audit = getAudits().find(a => a.id === f.audit_id);
-      return audit?.entity_id === entityId && new Date(f.created_at) >= sixtyDaysAgo;
-    });
-    const repeatPenalty = Math.min(50, recentFindings.length * 10);
-    components.repeat_findings = 100 - repeatPenalty;
-
-    // incident_rate (10%)
-    // No incidents table yet, default to 100
-    components.incident_rate = 100;
-
-    // verification_pass (10%)
-    const firstTimeApproved = closedCapas.filter(c => {
-      const activities = getCAPAActivitiesByCAPAId(c.id);
-      const rejections = activities.filter(a => a.action === 'rejected');
-      return rejections.length === 0;
-    });
-    components.verification_pass = closedCapas.length > 0
-      ? (firstTimeApproved.length / closedCapas.length) * 100
-      : 100;
-
-    score =
-      components.audit_performance * 0.40 +
-      components.capa_completion * 0.25 +
-      components.repeat_findings * 0.15 +
-      components.incident_rate * 0.10 +
-      components.verification_pass * 0.10;
-
-    // Update branch
-    updateBranch(entityId, { health_score: Math.round(score * 10) / 10 });
-
-  } else if (entityType === 'bck') {
-    // haccp_compliance (50%)
-    const latestAudit = approvedAudits.sort((a, b) =>
-      (b.completed_at || b.updated_at).localeCompare(a.completed_at || a.updated_at)
-    )[0];
-    components.haccp_compliance = latestAudit?.score || 0;
-
-    // production_audit_perf (25%)
-    const avgScore = approvedAudits.length > 0
-      ? approvedAudits.reduce((sum, a) => sum + (a.score || 0), 0) / approvedAudits.length
-      : 0;
-    components.production_audit_perf = avgScore;
-
-    // supplier_quality (15%)
-    const bck = getBCKs().find(b => b.id === entityId);
-    const suppliers = getSuppliers();
-    const relevantSuppliers = suppliers.filter(s =>
-      s.supplies_to.bcks.includes(entityId)
-    );
-    components.supplier_quality = relevantSuppliers.length > 0
-      ? relevantSuppliers.reduce((sum, s) => sum + s.quality_score, 0) / relevantSuppliers.length
-      : 100;
-
-    // capa_completion (10%)
-    const onTimeCapas = closedCapas.filter(c => {
-      const activities = getCAPAActivitiesByCAPAId(c.id);
-      const closedActivity = activities.find(a => a.action === 'approved' || a.action === 'auto_approved');
-      if (!closedActivity) return true;
-      return closedActivity.created_at <= c.due_date + 'T23:59:59';
-    });
-    components.capa_completion = closedCapas.length > 0
-      ? (onTimeCapas.length / closedCapas.length) * 100
-      : 100;
-
-    score =
-      components.haccp_compliance * 0.50 +
-      components.production_audit_perf * 0.25 +
-      components.supplier_quality * 0.15 +
-      components.capa_completion * 0.10;
-
-    // Update BCK
-    updateBCK(entityId, { health_score: Math.round(score * 10) / 10 });
-
-  } else if (entityType === 'supplier') {
-    // audit_performance (40%)
-    const avgScore = approvedAudits.length > 0
-      ? approvedAudits.reduce((sum, a) => sum + (a.score || 0), 0) / approvedAudits.length
-      : 0;
-    components.audit_performance = avgScore;
-
-    // product_quality (30%)
-    // Based on findings/incidents - simplified for MVP
-    const findings = getFindings().filter(f => {
-      const audit = getAudits().find(a => a.id === f.audit_id);
-      return audit?.entity_id === entityId;
-    });
-    components.product_quality = Math.max(0, 100 - findings.length * 10);
-
-    // compliance (20%)
-    const supplier = getSuppliers().find(s => s.id === entityId);
-    // Check certification expiry - simplified for MVP
-    components.compliance = (supplier?.certifications?.length || 0) > 0 ? 100 : 75;
-
-    // delivery_perf (10%)
-    components.delivery_perf = 100; // Default full score for MVP
-
-    score =
-      components.audit_performance * 0.40 +
-      components.product_quality * 0.30 +
-      components.compliance * 0.20 +
-      components.delivery_perf * 0.10;
-
-    // Update supplier quality_score
-    updateSupplier(entityId, { quality_score: Math.round(score * 10) / 10 });
-  }
-
-  // Save health score record
-  upsertHealthScore({
-    entity_type: entityType,
-    entity_id: entityId,
-    score: Math.round(score * 10) / 10,
-    components,
-    calculated_at: new Date().toISOString(),
-  });
-
-  return score;
-};
+// ============= RE-EXPORT HEALTH SCORE FUNCTIONS =============
+// For backwards compatibility, re-export from the shared engine
+export {
+  getHealthScores,
+  upsertHealthScore,
+  recalculateAndSaveHealthScore as recalculateHealthScore,
+  type HealthScoreRecord,
+} from './healthScoreEngine';
