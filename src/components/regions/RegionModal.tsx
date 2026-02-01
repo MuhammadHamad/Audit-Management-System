@@ -193,14 +193,14 @@ export function RegionModal({ open, onOpenChange, onSuccess, region }: RegionMod
           <div className="space-y-2">
             <Label htmlFor="manager">Manager</Label>
             <Select
-              value={watchManagerId}
-              onValueChange={(value) => setValue('manager_id', value, { shouldDirty: true })}
+              value={watchManagerId || "__none__"}
+              onValueChange={(value) => setValue('manager_id', value === "__none__" ? '' : value, { shouldDirty: true })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select a regional manager" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No manager</SelectItem>
+                <SelectItem value="__none__">No manager</SelectItem>
                 {managers.map((manager) => (
                   <SelectItem key={manager.id} value={manager.id}>
                     {manager.full_name} ({manager.email})
