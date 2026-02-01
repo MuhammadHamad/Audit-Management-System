@@ -85,3 +85,28 @@
     font-family: 'Inter', sans-serif;
   }
 }
+
+@layer utilities {
+  /* Role background colors */
+  .bg-role-super-admin {
+    background-color: hsl(var(--role-super-admin));
+  }
+  .bg-role-audit-manager {
+    background-color: hsl(var(--role-audit-manager));
+  }
+  .bg-role-regional-manager {
+    background-color: hsl(var(--role-regional-manager));
+  }
+  .bg-role-auditor {
+    background-color: hsl(var(--role-auditor));
+  }
+  .bg-role-branch-manager {
+    background-color: hsl(var(--role-branch-manager));
+  }
+  .bg-role-bck-manager {
+    background-color: hsl(var(--role-bck-manager));
+  }
+  .bg-role-staff {
+    background-color: hsl(var(--role-staff));
+  }
+}
