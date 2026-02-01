@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EntityStatusBadge } from '@/components/entities/EntityStatusBadge';
-import { QualityScoreBadge } from '@/components/entities/QualityScoreBadge';
+import { QualityScoreBadge } from '@/components/entities/HealthScoreIndicator';
 import { CertificationBadge } from '@/components/entities/CertificationBadge';
 import { SupplierTypeBadge } from '@/components/entities/SupplierTypeBadge';
 import { RiskLevelBadge } from '@/components/entities/RiskLevelBadge';

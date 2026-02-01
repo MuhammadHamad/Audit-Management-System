@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EntityStatusBadge } from '@/components/entities/EntityStatusBadge';
-import { HealthScoreBadge } from '@/components/entities/HealthScoreBadge';
+import { HealthScoreIndicator } from '@/components/entities/HealthScoreIndicator';
 import { CertificationBadge } from '@/components/entities/CertificationBadge';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { BCKModal } from '@/components/bcks/BCKModal';
@@ -338,7 +338,7 @@ export default function BCKsPage() {
                       {bck.supplies_branches.length} branches
                     </TableCell>
                     <TableCell>
-                      <HealthScoreBadge score={bck.health_score} hasAudits={!!bck.last_audit_date} />
+                      <HealthScoreIndicator score={bck.health_score} entityType="bck" size="sm" hasAudits={!!bck.last_audit_date} />
                     </TableCell>
                     <TableCell>
                       <CertificationBadge certifications={bck.certifications} />
