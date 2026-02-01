@@ -41,6 +41,16 @@ export interface Finding {
 export type CAPAStatus = 'open' | 'in_progress' | 'pending_verification' | 'approved' | 'rejected' | 'escalated' | 'closed';
 export type CAPAPriority = 'low' | 'medium' | 'high' | 'critical';
 
+export interface SubTask {
+  id: string;
+  assigned_to_user_id: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  evidence_urls: string[];
+  completed_at: string | null;
+  created_at: string;
+}
+
 export interface CAPA {
   id: string;
   capa_code: string;
@@ -53,8 +63,9 @@ export interface CAPA {
   due_date: string;
   status: CAPAStatus;
   priority: CAPAPriority;
-  evidence_urls?: string[];
-  corrective_action?: string;
+  evidence_urls: string[];
+  notes?: string;
+  sub_tasks: SubTask[];
   created_at: string;
   updated_at: string;
 }

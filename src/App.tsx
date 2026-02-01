@@ -23,6 +23,7 @@ import AuditExecutionPage from "@/pages/AuditExecution";
 import VerificationQueuePage from "@/pages/VerificationQueue";
 import VerificationDetailPage from "@/pages/VerificationDetail";
 import CAPAPage from "@/pages/CAPA";
+import CAPADetailPage from "@/pages/CAPADetail";
 import IncidentsPage from "@/pages/Incidents";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
@@ -68,6 +69,7 @@ const App = () => (
               <Route path="/audits/:id" element={<AuditExecutionPage />} />
               <Route path="/audits/:id/verify" element={<VerificationDetailPage />} />
               <Route path="/capa" element={<CAPAPage />} />
+              <Route path="/capa/:id" element={<CAPADetailPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />

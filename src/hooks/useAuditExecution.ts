@@ -585,6 +585,8 @@ export function useAuditExecution(auditId: string) {
           due_date: dueDate,
           status: 'open',
           priority: finding.severity,
+          evidence_urls: [],
+          sub_tasks: [],
         });
         capas.push(capa);
 
