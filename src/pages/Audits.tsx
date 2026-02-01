@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { CalendarPlus, Search, MoreVertical, List, CalendarDays, Pencil, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CalendarPlus, Search, MoreVertical, List, CalendarDays, Pencil, X, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,6 +85,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function AuditsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAuditor = user?.role === 'auditor';
   const isRegionalManager = user?.role === 'regional_manager';
 
@@ -323,8 +325,12 @@ export default function AuditsPage() {
                     const isOverdue = audit.status === 'overdue' || 
                       (audit.status === 'scheduled' && new Date(audit.scheduled_date) < new Date());
                     
-                    return (
-                      <TableRow key={audit.id}>
+                      return (
+                      <TableRow 
+                        key={audit.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => navigate(`/audits/${audit.id}`)}
+                      >
                         <TableCell>
                           <span className="font-semibold">{audit.audit_code}</span>
                         </TableCell>
@@ -353,25 +359,38 @@ export default function AuditsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {audit.score !== undefined ? `${audit.score}%` : '—'}
+                          {audit.score !== undefined ? `${audit.score.toFixed(1)}%` : '—'}
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
+                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                               <Button variant="ghost" size="icon">
                                 <MoreVertical className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/audits/${audit.id}`);
+                              }}>
+                                <Play className="mr-2 h-4 w-4" />
+                                {['scheduled', 'in_progress', 'overdue'].includes(audit.status) ? 'Execute Audit' : 'View Audit'}
+                              </DropdownMenuItem>
                               {!isAuditor && (
-                                <DropdownMenuItem onClick={() => handleAssignAuditor(audit)}>
+                                <DropdownMenuItem onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAssignAuditor(audit);
+                                }}>
                                   <Pencil className="mr-2 h-4 w-4" />
                                   {audit.auditor_id ? 'Reassign Auditor' : 'Assign Auditor'}
                                 </DropdownMenuItem>
                               )}
                               {audit.status === 'scheduled' && (
                                 <DropdownMenuItem 
-                                  onClick={() => handleCancel(audit)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancel(audit);
+                                  }}
                                   className="text-destructive"
                                 >
                                   <X className="mr-2 h-4 w-4" />

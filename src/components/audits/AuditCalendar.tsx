@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 };
 
 export function AuditCalendar({ audits, currentDate, onDateChange }: AuditCalendarProps) {
+  const navigate = useNavigate();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -141,8 +143,9 @@ export function AuditCalendar({ audits, currentDate, onDateChange }: AuditCalend
                     <Tooltip key={audit.id}>
                       <TooltipTrigger asChild>
                         <div
+                          onClick={() => navigate(`/audits/${audit.id}`)}
                           className={cn(
-                            'text-xs px-1.5 py-0.5 rounded truncate cursor-pointer',
+                            'text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all',
                             ENTITY_TYPE_COLORS[audit.entity_type],
                             audit.status === 'cancelled' && 'opacity-50 line-through',
                             audit.status === 'overdue' && 'ring-1 ring-destructive'
