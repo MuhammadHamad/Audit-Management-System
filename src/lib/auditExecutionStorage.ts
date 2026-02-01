@@ -53,6 +53,8 @@ export interface CAPA {
   due_date: string;
   status: CAPAStatus;
   priority: CAPAPriority;
+  evidence_urls?: string[];
+  corrective_action?: string;
   created_at: string;
   updated_at: string;
 }

@@ -129,6 +129,7 @@ export const routeAccess: Record<string, UserRole[]> = {
   '/templates': ['super_admin', 'audit_manager'],
   '/audit-plans': ['super_admin', 'audit_manager'],
   '/audits': ['super_admin', 'audit_manager', 'regional_manager', 'auditor'],
+  '/audits/pending-verification': ['super_admin', 'audit_manager', 'regional_manager'],
   '/capa': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager', 'staff'],
   '/incidents': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],
   '/reports': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],

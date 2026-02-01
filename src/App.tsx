@@ -20,6 +20,8 @@ import TemplateBuilderPage from "@/pages/TemplateBuilder";
 import AuditPlansPage from "@/pages/AuditPlans";
 import AuditsPage from "@/pages/Audits";
 import AuditExecutionPage from "@/pages/AuditExecution";
+import VerificationQueuePage from "@/pages/VerificationQueue";
+import VerificationDetailPage from "@/pages/VerificationDetail";
 import CAPAPage from "@/pages/CAPA";
 import IncidentsPage from "@/pages/Incidents";
 import ReportsPage from "@/pages/Reports";
@@ -62,7 +64,9 @@ const App = () => (
               <Route path="/templates/:id/edit" element={<TemplateBuilderPage />} />
               <Route path="/audit-plans" element={<AuditPlansPage />} />
               <Route path="/audits" element={<AuditsPage />} />
+              <Route path="/audits/pending-verification" element={<VerificationQueuePage />} />
               <Route path="/audits/:id" element={<AuditExecutionPage />} />
+              <Route path="/audits/:id/verify" element={<VerificationDetailPage />} />
               <Route path="/capa" element={<CAPAPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
