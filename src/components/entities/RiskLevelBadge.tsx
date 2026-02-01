@@ -6,9 +6,9 @@ interface RiskLevelBadgeProps {
 }
 
 const levelConfig: Record<RiskLevel, { label: string; dotClass: string }> = {
-  low: { label: 'Low', dotClass: 'bg-green-500' },
-  medium: { label: 'Medium', dotClass: 'bg-yellow-500' },
-  high: { label: 'High', dotClass: 'bg-red-500' },
+  low: { label: 'Low', dotClass: 'bg-success' },
+  medium: { label: 'Medium', dotClass: 'bg-warning' },
+  high: { label: 'High', dotClass: 'bg-destructive' },
 };
 
 export function RiskLevelBadge({ level }: RiskLevelBadgeProps) {
