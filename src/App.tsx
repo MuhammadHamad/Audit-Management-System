@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
 import { checkAndRunBatchIfNeeded } from "@/lib/healthScoreEngine";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 // Pages
 import LoginPage from "@/pages/Login";
@@ -46,59 +47,61 @@ function HealthScoreBatchCheck() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <HealthScoreBatchCheck />
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
-            
-            {/* Root redirect */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+  <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <HealthScoreBatchCheck />
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<LoginPage />} />
+              
+              {/* Root redirect */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            {/* Protected routes with layout */}
-            <Route
-              element={
-                <ProtectedRoute>
-                  <AppLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/users" element={<UsersPage />} />
-              <Route path="/branches" element={<BranchesPage />} />
-              <Route path="/bcks" element={<BCKsPage />} />
-              <Route path="/suppliers" element={<SuppliersPage />} />
-              <Route path="/regions" element={<RegionsPage />} />
-              <Route path="/templates" element={<TemplatesPage />} />
-              <Route path="/templates/create" element={<TemplateBuilderPage />} />
-              <Route path="/templates/:id/edit" element={<TemplateBuilderPage />} />
-              <Route path="/audit-plans" element={<AuditPlansPage />} />
-              <Route path="/audits" element={<AuditsPage />} />
-              <Route path="/audits/pending-verification" element={<VerificationQueuePage />} />
-              <Route path="/audits/:id" element={<AuditExecutionPage />} />
-              <Route path="/audits/:id/verify" element={<VerificationDetailPage />} />
-              <Route path="/capa" element={<CAPAPage />} />
-              <Route path="/capa/:id" element={<CAPADetailPage />} />
-              <Route path="/incidents" element={<IncidentsPage />} />
-              <Route path="/incidents/create" element={<IncidentCreatePage />} />
-              <Route path="/incidents/:id" element={<IncidentDetailPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-            </Route>
+              {/* Protected routes with layout */}
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/users" element={<UsersPage />} />
+                <Route path="/branches" element={<BranchesPage />} />
+                <Route path="/bcks" element={<BCKsPage />} />
+                <Route path="/suppliers" element={<SuppliersPage />} />
+                <Route path="/regions" element={<RegionsPage />} />
+                <Route path="/templates" element={<TemplatesPage />} />
+                <Route path="/templates/create" element={<TemplateBuilderPage />} />
+                <Route path="/templates/:id/edit" element={<TemplateBuilderPage />} />
+                <Route path="/audit-plans" element={<AuditPlansPage />} />
+                <Route path="/audits" element={<AuditsPage />} />
+                <Route path="/audits/pending-verification" element={<VerificationQueuePage />} />
+                <Route path="/audits/:id" element={<AuditExecutionPage />} />
+                <Route path="/audits/:id/verify" element={<VerificationDetailPage />} />
+                <Route path="/capa" element={<CAPAPage />} />
+                <Route path="/capa/:id" element={<CAPADetailPage />} />
+                <Route path="/incidents" element={<IncidentsPage />} />
+                <Route path="/incidents/create" element={<IncidentCreatePage />} />
+                <Route path="/incidents/:id" element={<IncidentDetailPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
+              </Route>
 
-            {/* Catch-all */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
+              {/* Catch-all */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

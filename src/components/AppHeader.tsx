@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const routeTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -77,9 +78,10 @@ export function AppHeader() {
         )}
       </div>
 
-      {/* Right: Notifications and User */}
-      <div className="flex items-center gap-4">
-        {/* Notifications */}
+      {/* Right: Theme Toggle, Notifications and User */}
+      <div className="flex items-center gap-2">
+        {/* Theme Toggle */}
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">

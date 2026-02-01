@@ -73,6 +73,71 @@
     --role-bck-manager: 263 70% 50%;
     --role-staff: 220 9% 64%;
   }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 0 100% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217 33% 22%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 22%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 30 100% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 217 33% 28%;
+    --input: 217 33% 28%;
+    --ring: 0 100% 35%;
+
+    /* Sidebar specific colors - dark mode */
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 0 100% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 22%;
+    --sidebar-ring: 0 100% 35%;
+    --sidebar-muted: 215 20% 55%;
+
+    /* Health Score Colors - dark mode adjusted */
+    --health-excellent: 160 84% 42%;
+    --health-good: 38 92% 55%;
+    --health-needs-improvement: 25 95% 55%;
+    --health-critical: 0 72% 55%;
+
+    /* Role badge colors - dark mode adjusted */
+    --role-super-admin: 0 100% 35%;
+    --role-audit-manager: 30 100% 50%;
+    --role-regional-manager: 217 91% 65%;
+    --role-auditor: 160 84% 42%;
+    --role-branch-manager: 220 9% 55%;
+    --role-bck-manager: 263 70% 55%;
+    --role-staff: 220 9% 55%;
+  }
 }
 
 @layer base {
