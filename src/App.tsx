@@ -16,6 +16,7 @@ import BCKsPage from "@/pages/BCKs";
 import SuppliersPage from "@/pages/Suppliers";
 import RegionsPage from "@/pages/Regions";
 import TemplatesPage from "@/pages/Templates";
+import TemplateBuilderPage from "@/pages/TemplateBuilder";
 import AuditPlansPage from "@/pages/AuditPlans";
 import AuditsPage from "@/pages/Audits";
 import CAPAPage from "@/pages/CAPA";
@@ -56,6 +57,8 @@ const App = () => (
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/regions" element={<RegionsPage />} />
               <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/templates/create" element={<TemplateBuilderPage />} />
+              <Route path="/templates/:id/edit" element={<TemplateBuilderPage />} />
               <Route path="/audit-plans" element={<AuditPlansPage />} />
               <Route path="/audits" element={<AuditsPage />} />
               <Route path="/capa" element={<CAPAPage />} />
