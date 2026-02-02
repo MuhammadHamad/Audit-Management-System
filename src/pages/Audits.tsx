@@ -184,18 +184,19 @@ export default function AuditsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{pageTitle}</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{pageTitle}</h1>
+          <p className="text-sm text-muted-foreground">
             {isAuditor ? 'View and execute your assigned audits' : 'Manage and track all audits'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {!isAuditor && (
-            <Button variant="outline" onClick={() => setQuickScheduleOpen(true)}>
+            <Button variant="outline" onClick={() => setQuickScheduleOpen(true)} className="flex-1 sm:flex-none">
               <CalendarPlus className="mr-2 h-4 w-4" />
-              Schedule One-time Audit
+              <span className="hidden sm:inline">Schedule One-time Audit</span>
+              <span className="sm:hidden">Schedule</span>
             </Button>
           )}
           
@@ -206,18 +207,20 @@ export default function AuditsPage() {
               size="sm"
               className={viewMode === 'list' ? 'bg-primary rounded-none' : 'rounded-none'}
               onClick={() => setViewMode('list')}
+              aria-label="List view"
             >
-              <List className="h-4 w-4 mr-1" />
-              List
+              <List className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">List</span>
             </Button>
             <Button
               variant={viewMode === 'calendar' ? 'default' : 'ghost'}
               size="sm"
               className={viewMode === 'calendar' ? 'bg-primary rounded-none' : 'rounded-none'}
               onClick={() => setViewMode('calendar')}
+              aria-label="Calendar view"
             >
-              <CalendarDays className="h-4 w-4 mr-1" />
-              Calendar
+              <CalendarDays className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Calendar</span>
             </Button>
           </div>
         </div>
@@ -285,7 +288,8 @@ export default function AuditsPage() {
       {viewMode === 'list' ? (
         <>
           {/* Table */}
-          <div className="border rounded-lg">
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <div className="border rounded-lg min-w-[800px] md:min-w-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -406,6 +410,7 @@ export default function AuditsPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </div>
 
           {/* Pagination */}

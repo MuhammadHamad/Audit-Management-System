@@ -165,57 +165,62 @@ export default function UsersPage() {
   return (
     <div className="space-y-6">
       {/* Top Bar */}
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-2 sm:gap-3">
         <Button
           variant="outline"
           className="border-primary text-primary hover:bg-primary/5"
           onClick={() => setShowImportModal(true)}
         >
           <Upload className="mr-2 h-4 w-4" />
-          Import Users
+          <span className="hidden sm:inline">Import Users</span>
+          <span className="sm:hidden">Import</span>
         </Button>
         <Button onClick={() => setShowAddModal(true)}>
           <UserPlus className="mr-2 h-4 w-4" />
-          Add User
+          <span className="hidden sm:inline">Add User</span>
+          <span className="sm:hidden">Add</span>
         </Button>
       </div>
 
       {/* Filter Bar */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
         <Input
           placeholder="Search by name or email..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-[280px]"
+          className="flex-1 sm:flex-none sm:w-[280px]"
         />
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All Roles" />
-          </SelectTrigger>
-          <SelectContent>
-            {roleFilterOptions.map(option => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="All Statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            {statusFilterOptions.map(option => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 sm:gap-4">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="flex-1 sm:w-[180px]">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              {roleFilterOptions.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="flex-1 sm:w-[150px]">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              {statusFilterOptions.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Table */}
-      <div className="border rounded-lg">
+      {/* Table - Responsive wrapper */}
+      <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="border rounded-lg min-w-[700px] md:min-w-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -314,6 +319,7 @@ export default function UsersPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {/* Pagination */}
