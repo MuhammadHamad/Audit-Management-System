@@ -33,6 +33,7 @@ import IncidentDetailPage from "@/pages/IncidentDetail";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
 import ProfilePage from "@/pages/Profile";
+import NotificationsPage from "@/pages/Notifications";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -92,6 +93,7 @@ const App = () => (
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
               </Route>
 
               {/* Catch-all */}

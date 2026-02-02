@@ -319,6 +319,39 @@ export const approveAudit = (
     });
   }
 
+  // Notify entity manager that audit is approved
+  let entityName = '';
+  let managerId: string | undefined;
+  
+  if (audit.entity_type === 'branch') {
+    const branch = getBranches().find(b => b.id === audit.entity_id);
+    entityName = branch?.name || 'Unknown';
+    managerId = branch?.manager_id;
+  } else if (audit.entity_type === 'bck') {
+    const bck = getBCKs().find(b => b.id === audit.entity_id);
+    entityName = bck?.name || 'Unknown';
+    managerId = bck?.manager_id;
+  } else if (audit.entity_type === 'supplier') {
+    const supplier = getSuppliers().find(s => s.id === audit.entity_id);
+    entityName = supplier?.name || 'Unknown';
+    // For suppliers, notify the audit manager instead
+    const auditManagers = getUsersByRole('audit_manager');
+    if (auditManagers.length > 0) {
+      managerId = auditManagers[0].id;
+    }
+  }
+
+  if (managerId) {
+    createNotification({
+      user_id: managerId,
+      type: 'audit_approved',
+      title: 'Audit Approved',
+      message: `Audit ${audit.audit_code} for ${entityName} has been approved and finalized.`,
+      link_to: `/audits/${audit.id}`,
+      read: false,
+    });
+  }
+
   // Trigger health score recalculation using the shared engine
   recalculateAndSaveHealthScore(audit.entity_type as 'branch' | 'bck' | 'supplier', audit.entity_id);
 
