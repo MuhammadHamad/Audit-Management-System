@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RoleBadge } from '@/components/RoleBadge';
@@ -11,6 +12,9 @@ import {
   IncidentSummary,
   AuditorWorkloadTable,
 } from '@/components/dashboard/AuditManagerDashboard';
+import { RegionalManagerDashboard } from '@/components/dashboard/RegionalManagerDashboard';
+import { BranchManagerDashboard } from '@/components/dashboard/BranchManagerDashboard';
+import { BCKManagerDashboard } from '@/components/dashboard/BCKManagerDashboard';
 import {
   getKPIData,
   getCriticalAlerts,
@@ -27,35 +31,58 @@ export default function Dashboard() {
 
   if (!user) return null;
 
-  // Check if user should see Audit Manager dashboard
-  const isAuditManagerDashboard = user.role === 'super_admin' || user.role === 'audit_manager';
+  // Role-based dashboard routing
+  switch (user.role) {
+    case 'super_admin':
+    case 'audit_manager':
+      return (
+        <AuditManagerDashboardView 
+          filterNeedsAttention={filterNeedsAttention} 
+          setFilterNeedsAttention={setFilterNeedsAttention} 
+        />
+      );
+    
+    case 'regional_manager':
+      return <RegionalManagerDashboard user={user} />;
+    
+    case 'branch_manager':
+      return <BranchManagerDashboard user={user} />;
+    
+    case 'bck_manager':
+      return <BCKManagerDashboard user={user} />;
+    
+    case 'auditor':
+      // Auditors are redirected to their audit list
+      return <Navigate to="/audits" replace />;
+    
+    case 'staff':
+      // Staff are redirected to their task list (CAPA)
+      return <Navigate to="/capa" replace />;
+    
+    default:
+      // Fallback placeholder for any other roles
+      return (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Welcome, {user.full_name}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center gap-3">
+              <span className="text-muted-foreground">Your role:</span>
+              <RoleBadge role={user.role} />
+            </CardContent>
+          </Card>
 
-  if (isAuditManagerDashboard) {
-    return <AuditManagerDashboardView filterNeedsAttention={filterNeedsAttention} setFilterNeedsAttention={setFilterNeedsAttention} />;
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-lg text-muted-foreground">
+                Dashboard content coming soon.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
   }
-
-  // Default placeholder for other roles (to be replaced in Prompt 12)
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Welcome, {user.full_name}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center gap-3">
-          <span className="text-muted-foreground">Your role:</span>
-          <RoleBadge role={user.role} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="py-12 text-center">
-          <p className="text-lg text-muted-foreground">
-            Dashboard content coming soon.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
 }
 
 interface AuditManagerDashboardViewProps {
