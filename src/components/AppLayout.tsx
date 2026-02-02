@@ -1,14 +1,20 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AppHeader } from '@/components/AppHeader';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export function AppLayout() {
+  const isMobile = useIsMobile();
+
   return (
     <div className="min-h-screen bg-background">
-      <AppSidebar />
+      {/* Desktop sidebar - hidden on mobile */}
+      {!isMobile && <AppSidebar />}
+      
       <AppHeader />
-      <main className="ml-64 min-h-screen pt-16">
-        <div className="p-6">
+      
+      <main className={`min-h-screen pt-16 ${!isMobile ? 'ml-64' : ''}`}>
+        <div className="p-4 md:p-6">
           <Outlet />
         </div>
       </main>

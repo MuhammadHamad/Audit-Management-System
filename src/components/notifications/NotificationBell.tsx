@@ -75,10 +75,18 @@ export function NotificationBell() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="relative"
+          aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+        >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+            <span 
+              className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground"
+              aria-live="polite"
+            >
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}

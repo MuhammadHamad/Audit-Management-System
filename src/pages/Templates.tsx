@@ -198,13 +198,14 @@ export default function TemplatesPage() {
       <div className="flex items-center justify-end">
         <Button onClick={() => navigate('/templates/create')}>
           <Plus className="mr-2 h-4 w-4" />
-          Create Template
+          <span className="hidden sm:inline">Create Template</span>
+          <span className="sm:hidden">Create</span>
         </Button>
       </div>
 
       {/* Filter Bar */}
-      <div className="flex items-center gap-4">
-        <div className="relative w-72">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+        <div className="relative flex-1 sm:flex-none sm:w-72">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name or code..."
@@ -217,33 +218,36 @@ export default function TemplatesPage() {
           />
         </div>
 
-        <Select value={entityTypeFilter} onValueChange={(v) => { setEntityTypeFilter(v); setCurrentPage(1); }}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="All Entity Types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Entity Types</SelectItem>
-            <SelectItem value="branch">Branch</SelectItem>
-            <SelectItem value="bck">BCK</SelectItem>
-            <SelectItem value="supplier">Supplier</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 sm:gap-4">
+          <Select value={entityTypeFilter} onValueChange={(v) => { setEntityTypeFilter(v); setCurrentPage(1); }}>
+            <SelectTrigger className="flex-1 sm:w-44">
+              <SelectValue placeholder="All Entity Types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entity Types</SelectItem>
+              <SelectItem value="branch">Branch</SelectItem>
+              <SelectItem value="bck">BCK</SelectItem>
+              <SelectItem value="supplier">Supplier</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="All Statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-          </SelectContent>
-        </Select>
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+            <SelectTrigger className="flex-1 sm:w-40">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-md border">
+      {/* Table - Responsive wrapper */}
+      <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="rounded-md border min-w-[800px] md:min-w-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -313,7 +317,7 @@ export default function TemplatesPage() {
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" aria-label={`Actions for ${template.name}`}>
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -356,6 +360,7 @@ export default function TemplatesPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {/* Pagination */}
