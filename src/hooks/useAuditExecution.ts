@@ -594,9 +594,9 @@ export function useAuditExecution(auditId: string) {
         if (assignee) {
           createNotification({
             user_id: assignee,
-            type: 'capa',
-            title: 'New CAPA assigned',
-            message: `You have a new corrective action for ${entityName}. Due: ${dueDate}`,
+            type: 'capa_assigned',
+            title: 'New CAPA Assigned',
+            message: `New CAPA assigned to you: ${capa.capa_code} for ${entityName}. Due: ${dueDate}`,
             link_to: `/capa/${capa.id}`,
             read: false,
           });
@@ -608,9 +608,9 @@ export function useAuditExecution(auditId: string) {
           for (const manager of auditManagers) {
             createNotification({
               user_id: manager.id,
-              type: 'finding',
-              title: 'Critical finding detected',
-              message: `A critical issue was found during audit ${audit.audit_code} at ${entityName}.`,
+              type: 'incident_critical',
+              title: 'Critical Finding Detected',
+              message: `Critical finding detected in audit ${audit.audit_code} at ${entityName}. Immediate attention required.`,
               link_to: `/audits/${audit.id}`,
               read: false,
             });

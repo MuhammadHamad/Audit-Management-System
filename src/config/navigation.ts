@@ -135,4 +135,5 @@ export const routeAccess: Record<string, UserRole[]> = {
   '/reports': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],
   '/settings': ['super_admin'],
   '/profile': ['super_admin', 'audit_manager', 'regional_manager', 'auditor', 'branch_manager', 'bck_manager', 'staff'],
+  '/notifications': ['super_admin', 'audit_manager', 'regional_manager', 'auditor', 'branch_manager', 'bck_manager', 'staff'],
 };
