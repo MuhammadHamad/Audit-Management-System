@@ -47,6 +47,8 @@ import {
   deleteSupplier,
   updateSupplier,
   getSupplierByCode,
+  getBCKByCode,
+  getBranchByCode,
   importSuppliers,
 } from '@/lib/entityStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -176,35 +178,134 @@ export default function SuppliersPage() {
 
   // Import configuration
   const importColumns = [
-    { key: 'supplier_code', label: 'Code' },
+    { key: 'code', label: 'Code' },
     { key: 'name', label: 'Name' },
     { key: 'type', label: 'Type' },
     { key: 'risk_level', label: 'Risk' },
+    { key: 'contact_email', label: 'Contact' },
     { key: 'status', label: 'Status' },
   ];
 
-  const validateImportRow = (row: Record<string, string>, rowIndex: number) => {
+  // Helper to parse certifications string "HACCP:2026-12-31,Halal:2027-01-31"
+  const parseCertifications = (certStr: string): { name: string; expiry_date: string }[] | null => {
+    if (!certStr?.trim()) return [];
+    const certs: { name: string; expiry_date: string }[] = [];
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    
+    for (const cert of certStr.split(',')) {
+      const parts = cert.trim().split(':');
+      if (parts.length !== 2) return null;
+      const [name, date] = parts;
+      if (!name.trim() || !dateRegex.test(date.trim())) return null;
+      certs.push({ name: name.trim(), expiry_date: date.trim() });
+    }
+    return certs;
+  };
+
+  const validateImportRow = (row: Record<string, string>, rowIndex: number, allRows?: Record<string, string>[]) => {
     const errors: { row: number; message: string; field?: string }[] = [];
     const rowNum = rowIndex + 2;
+    const code = row.code?.trim() || row.supplier_code?.trim();
 
-    if (!row.supplier_code?.trim()) {
-      errors.push({ row: rowNum, message: 'Supplier code is required', field: 'supplier_code' });
-    } else if (getSupplierByCode(row.supplier_code)) {
-      errors.push({ row: rowNum, message: `Code '${row.supplier_code}' already exists`, field: 'supplier_code' });
+    // Required: code
+    if (!code) {
+      errors.push({ row: rowNum, message: 'Supplier code is required', field: 'code' });
+    } else {
+      const upperCode = code.toUpperCase();
+      if (getSupplierByCode(upperCode)) {
+        errors.push({ row: rowNum, message: `Code '${upperCode}' already exists in the system`, field: 'code' });
+      }
+      // Check duplicates within CSV
+      if (allRows) {
+        const duplicates = allRows.filter((r, i) => {
+          const otherCode = r.code?.trim() || r.supplier_code?.trim();
+          return i !== rowIndex && otherCode?.toUpperCase() === upperCode;
+        });
+        if (duplicates.length > 0) {
+          errors.push({ row: rowNum, message: `Duplicate code '${upperCode}' within this file`, field: 'code' });
+        }
+      }
     }
 
+    // Required: name
     if (!row.name?.trim()) {
       errors.push({ row: rowNum, message: 'Name is required', field: 'name' });
     }
 
+    // Required: type
     const validTypes = ['food', 'packaging', 'equipment', 'service'];
-    if (row.type && !validTypes.includes(row.type.toLowerCase())) {
-      errors.push({ row: rowNum, message: `Type '${row.type}' is not valid`, field: 'type' });
+    if (!row.type?.trim()) {
+      errors.push({ row: rowNum, message: 'Type is required', field: 'type' });
+    } else if (!validTypes.includes(row.type.trim().toLowerCase())) {
+      errors.push({ row: rowNum, message: `Type '${row.type}' is not valid. Use: ${validTypes.join(', ')}`, field: 'type' });
     }
 
+    // Required: risk_level
     const validRiskLevels = ['low', 'medium', 'high'];
-    if (row.risk_level && !validRiskLevels.includes(row.risk_level.toLowerCase())) {
-      errors.push({ row: rowNum, message: `Risk level '${row.risk_level}' is not valid`, field: 'risk_level' });
+    if (!row.risk_level?.trim()) {
+      errors.push({ row: rowNum, message: 'Risk level is required', field: 'risk_level' });
+    } else if (!validRiskLevels.includes(row.risk_level.trim().toLowerCase())) {
+      errors.push({ row: rowNum, message: `Risk level '${row.risk_level}' is not valid. Use: ${validRiskLevels.join(', ')}`, field: 'risk_level' });
+    }
+
+    // Optional: contact_email - validate format
+    if (row.contact_email?.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(row.contact_email.trim())) {
+        errors.push({ row: rowNum, message: 'Contact email format is invalid', field: 'contact_email' });
+      }
+    }
+
+    // Optional: contract_start and contract_end
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (row.contract_start?.trim()) {
+      if (!dateRegex.test(row.contract_start.trim())) {
+        errors.push({ row: rowNum, message: 'Contract start must be in YYYY-MM-DD format', field: 'contract_start' });
+      }
+    }
+    if (row.contract_end?.trim()) {
+      if (!dateRegex.test(row.contract_end.trim())) {
+        errors.push({ row: rowNum, message: 'Contract end must be in YYYY-MM-DD format', field: 'contract_end' });
+      }
+    }
+    if (row.contract_start?.trim() && row.contract_end?.trim()) {
+      const start = new Date(row.contract_start.trim());
+      const end = new Date(row.contract_end.trim());
+      if (end <= start) {
+        errors.push({ row: rowNum, message: 'Contract end date must be after start date', field: 'contract_end' });
+      }
+    }
+
+    // Optional: supplies_to_bck_codes
+    if (row.supplies_to_bck_codes?.trim()) {
+      const codes = row.supplies_to_bck_codes.split(',').map(c => c.trim()).filter(Boolean);
+      const invalidCodes = codes.filter(c => !getBCKByCode(c));
+      if (invalidCodes.length > 0) {
+        errors.push({ row: rowNum, message: `BCK codes not found: ${invalidCodes.join(', ')}`, field: 'supplies_to_bck_codes' });
+      }
+    }
+
+    // Optional: supplies_to_branch_codes
+    if (row.supplies_to_branch_codes?.trim()) {
+      const codes = row.supplies_to_branch_codes.split(',').map(c => c.trim()).filter(Boolean);
+      const invalidCodes = codes.filter(c => !getBranchByCode(c));
+      if (invalidCodes.length > 0) {
+        errors.push({ row: rowNum, message: `Branch codes not found: ${invalidCodes.join(', ')}`, field: 'supplies_to_branch_codes' });
+      }
+    }
+
+    // Optional: certifications
+    if (row.certifications?.trim()) {
+      const certs = parseCertifications(row.certifications);
+      if (certs === null) {
+        errors.push({ row: rowNum, message: "Certification format invalid. Use 'Name:YYYY-MM-DD'", field: 'certifications' });
+      }
+    }
+
+    // Optional: status
+    const validStatuses = ['active', 'inactive', 'under_review', 'suspended', 'blacklisted'];
+    if (row.status?.trim() && !validStatuses.includes(row.status.trim().toLowerCase())) {
+      errors.push({ row: rowNum, message: `Status '${row.status}' is not valid. Use: ${validStatuses.join(', ')}`, field: 'status' });
     }
 
     return errors;
@@ -213,16 +314,23 @@ export default function SuppliersPage() {
   const handleImport = (data: Record<string, string>[]) => {
     const result = importSuppliers(
       data.map((row) => ({
-        supplier_code: row.supplier_code,
-        name: row.name,
-        type: row.type?.toLowerCase(),
-        category: row.category,
-        risk_level: row.risk_level?.toLowerCase(),
-        contact_name: row.contact_name,
-        contact_phone: row.contact_phone,
-        contact_email: row.contact_email,
-        city: row.city,
-        status: row.status?.toLowerCase(),
+        supplier_code: (row.code || row.supplier_code)?.trim(),
+        name: row.name?.trim(),
+        type: row.type?.trim().toLowerCase(),
+        category: row.category?.trim(),
+        risk_level: row.risk_level?.trim().toLowerCase(),
+        contact_name: row.contact_name?.trim(),
+        contact_phone: row.contact_phone?.trim(),
+        contact_email: row.contact_email?.trim(),
+        address: row.address?.trim(),
+        city: row.city?.trim(),
+        registration_number: row.registration_number?.trim(),
+        contract_start: row.contract_start?.trim(),
+        contract_end: row.contract_end?.trim(),
+        supplies_to_bck_codes: row.supplies_to_bck_codes?.trim(),
+        supplies_to_branch_codes: row.supplies_to_branch_codes?.trim(),
+        certifications: row.certifications?.trim(),
+        status: row.status?.trim().toLowerCase(),
       }))
     );
 
@@ -466,9 +574,9 @@ export default function SuppliersPage() {
         onSuccess={loadData}
         entityName="Suppliers"
         templateFileName="suppliers_import_template.csv"
-        templateContent="supplier_code,name,type,category,risk_level,contact_name,contact_phone,contact_email,city,status\nSUP-001,Al-Watania Poultry,food,Meat,high,Mohammed Al-Ahmad,+966501234567,supplier@watania.com,Riyadh,active"
+        templateContent={`code,name,type,category,risk_level,contact_name,contact_phone,contact_email,address,city,registration_number,contract_start,contract_end,supplies_to_bck_codes,supplies_to_branch_codes,certifications,status\nSUP-001,Al-Safi Dairy,food,dairy,high,Khalid Ahmed,+966503333333,khalid@alsafi.sa,789 Dairy St,Riyadh,CR-123456,2024-01-01,2026-12-31,"BCK-RYD-01","RYD-001,RYD-002","HACCP:2026-12-31,Halal:2027-01-31",active`}
         columns={importColumns}
-        validateRow={validateImportRow}
+        validateRow={(row, index) => validateImportRow(row, index)}
         importData={handleImport}
       />
 

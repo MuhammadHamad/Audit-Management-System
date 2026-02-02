@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import { Upload, Plus, MoreHorizontal, Pencil, Trash2, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +50,7 @@ import {
   getRegionByCode,
   getUserById,
   getUserByEmail,
+  getBranchByCode,
   importBCKs,
 } from '@/lib/entityStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -156,38 +156,119 @@ export default function BCKsPage() {
   const importColumns = [
     { key: 'code', label: 'Code' },
     { key: 'name', label: 'Name' },
-    { key: 'region_code', label: 'Region Code' },
+    { key: 'region_code', label: 'Region' },
     { key: 'city', label: 'City' },
+    { key: 'production_capacity', label: 'Capacity' },
     { key: 'status', label: 'Status' },
   ];
 
-  const validateImportRow = (row: Record<string, string>, rowIndex: number) => {
+  // Helper to parse certifications string "HACCP:2026-12-31,ISO22000:2027-06-15"
+  const parseCertifications = (certStr: string): { name: string; expiry_date: string }[] | null => {
+    if (!certStr?.trim()) return [];
+    const certs: { name: string; expiry_date: string }[] = [];
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    
+    for (const cert of certStr.split(',')) {
+      const parts = cert.trim().split(':');
+      if (parts.length !== 2) return null;
+      const [name, date] = parts;
+      if (!name.trim() || !dateRegex.test(date.trim())) return null;
+      certs.push({ name: name.trim(), expiry_date: date.trim() });
+    }
+    return certs;
+  };
+
+  // Helper to validate branch codes
+  const validateBranchCodes = (codesStr: string): { valid: boolean; invalidCodes: string[] } => {
+    if (!codesStr?.trim()) return { valid: true, invalidCodes: [] };
+    const invalidCodes: string[] = [];
+    for (const code of codesStr.split(',')) {
+      const trimmedCode = code.trim();
+      if (trimmedCode && !getBranchByCode(trimmedCode)) {
+        invalidCodes.push(trimmedCode);
+      }
+    }
+    return { valid: invalidCodes.length === 0, invalidCodes };
+  };
+
+  const validateImportRow = (row: Record<string, string>, rowIndex: number, allRows?: Record<string, string>[]) => {
     const errors: { row: number; message: string; field?: string }[] = [];
     const rowNum = rowIndex + 2;
 
+    // Required: code
     if (!row.code?.trim()) {
       errors.push({ row: rowNum, message: 'Code is required', field: 'code' });
-    } else if (getBCKByCode(row.code)) {
-      errors.push({ row: rowNum, message: `Code '${row.code}' already exists`, field: 'code' });
+    } else {
+      const code = row.code.trim().toUpperCase();
+      if (getBCKByCode(code)) {
+        errors.push({ row: rowNum, message: `Code '${code}' already exists in the system`, field: 'code' });
+      }
+      // Check duplicates within CSV
+      if (allRows) {
+        const duplicates = allRows.filter((r, i) => 
+          i !== rowIndex && r.code?.trim().toUpperCase() === code
+        );
+        if (duplicates.length > 0) {
+          errors.push({ row: rowNum, message: `Duplicate code '${code}' within this file`, field: 'code' });
+        }
+      }
     }
 
+    // Required: name
     if (!row.name?.trim()) {
       errors.push({ row: rowNum, message: 'Name is required', field: 'name' });
     }
 
+    // Required: region_code
     if (!row.region_code?.trim()) {
       errors.push({ row: rowNum, message: 'Region code is required', field: 'region_code' });
-    } else if (!getRegionByCode(row.region_code)) {
+    } else if (!getRegionByCode(row.region_code.trim())) {
       errors.push({ row: rowNum, message: `Region '${row.region_code}' does not exist`, field: 'region_code' });
     }
 
+    // Required: city
+    if (!row.city?.trim()) {
+      errors.push({ row: rowNum, message: 'City is required', field: 'city' });
+    }
+
+    // Optional: manager_email
     if (row.manager_email?.trim()) {
-      const manager = getUserByEmail(row.manager_email);
+      const manager = getUserByEmail(row.manager_email.trim());
       if (!manager) {
-        errors.push({ row: rowNum, message: `Manager email '${row.manager_email}' not found`, field: 'manager_email' });
+        errors.push({ row: rowNum, message: `Manager '${row.manager_email}' not found`, field: 'manager_email' });
       } else if (manager.role !== 'bck_manager') {
-        errors.push({ row: rowNum, message: `User '${row.manager_email}' is not a BCK manager`, field: 'manager_email' });
+        errors.push({ row: rowNum, message: `User '${row.manager_email}' is not a bck_manager`, field: 'manager_email' });
       }
+    }
+
+    // Optional: production_capacity - must be positive number if provided
+    if (row.production_capacity?.trim()) {
+      const capacity = parseInt(row.production_capacity.trim(), 10);
+      if (isNaN(capacity) || capacity <= 0) {
+        errors.push({ row: rowNum, message: 'Production capacity must be a positive number (kg/day)', field: 'production_capacity' });
+      }
+    }
+
+    // Optional: supplies_branch_codes
+    if (row.supplies_branch_codes?.trim()) {
+      const { valid, invalidCodes } = validateBranchCodes(row.supplies_branch_codes);
+      if (!valid) {
+        errors.push({ row: rowNum, message: `Branch codes not found: ${invalidCodes.join(', ')}`, field: 'supplies_branch_codes' });
+      }
+    }
+
+    // Optional: certifications
+    if (row.certifications?.trim()) {
+      const certs = parseCertifications(row.certifications);
+      if (certs === null) {
+        errors.push({ row: rowNum, message: "Certification format invalid. Use 'Name:YYYY-MM-DD'", field: 'certifications' });
+      }
+    }
+
+    // Optional: status
+    const validStatuses = ['active', 'inactive', 'under_maintenance'];
+    if (row.status?.trim() && !validStatuses.includes(row.status.trim().toLowerCase())) {
+      errors.push({ row: rowNum, message: `Status '${row.status}' is not valid. Use: ${validStatuses.join(', ')}`, field: 'status' });
     }
 
     return errors;
@@ -196,14 +277,18 @@ export default function BCKsPage() {
   const handleImport = (data: Record<string, string>[]) => {
     const result = importBCKs(
       data.map((row) => ({
-        code: row.code,
-        name: row.name,
-        region_code: row.region_code,
-        city: row.city,
-        address: row.address,
-        manager_email: row.manager_email,
-        production_capacity: row.production_capacity,
-        status: row.status,
+        code: row.code?.trim(),
+        name: row.name?.trim(),
+        region_code: row.region_code?.trim(),
+        city: row.city?.trim(),
+        address: row.address?.trim(),
+        manager_email: row.manager_email?.trim(),
+        phone: row.phone?.trim(),
+        email: row.email?.trim(),
+        production_capacity: row.production_capacity?.trim(),
+        supplies_branch_codes: row.supplies_branch_codes?.trim(),
+        certifications: row.certifications?.trim(),
+        status: row.status?.trim().toLowerCase(),
       }))
     );
 
@@ -429,9 +514,9 @@ export default function BCKsPage() {
         onSuccess={loadData}
         entityName="BCKs"
         templateFileName="bcks_import_template.csv"
-        templateContent="code,name,region_code,city,address,manager_email,production_capacity,status\nBCK-RYD-01,Riyadh Central Kitchen,RYD,Riyadh,456 Industrial Road,bckmanager@burgerizzr.sa,500 meals/day,active"
+        templateContent={`code,name,region_code,city,address,manager_email,phone,email,production_capacity,supplies_branch_codes,certifications,status\nBCK-RYD-01,Riyadh Central Kitchen,RYD,Riyadh,456 Industrial St,bckmanager@burgerizzr.sa,+966502222222,bck01@burgerizzr.sa,5000,"RYD-001,RYD-002","HACCP:2026-12-31,ISO22000:2027-06-15",active`}
         columns={importColumns}
-        validateRow={validateImportRow}
+        validateRow={(row, index) => validateImportRow(row, index)}
         importData={handleImport}
       />
 

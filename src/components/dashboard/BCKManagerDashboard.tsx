@@ -80,15 +80,16 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
   const certifications = useMemo((): Certification[] => {
     if (!bckData?.certifications) return [];
     
-    // If certifications is an array of strings (legacy format), convert to objects
-    if (typeof bckData.certifications[0] === 'string') {
-      return (bckData.certifications as string[]).map(name => ({
-        name,
-        expiry_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(), // Default 6 months from now
-      }));
+    // If certifications is already in Certification[] format, return as-is
+    if (typeof bckData.certifications[0] === 'object' && bckData.certifications[0] !== null) {
+      return bckData.certifications;
     }
     
-    return bckData.certifications as unknown as Certification[];
+    // Legacy format: array of strings - convert to objects
+    return (bckData.certifications as unknown as string[]).map(name => ({
+      name,
+      expiry_date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 6 months from now
+    }));
   }, [bckData]);
 
   // KPI calculations

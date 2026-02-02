@@ -1,11 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface Certification {
-  name: string;
-  expiry_date?: string;
-  document_url?: string | null;
-}
+import { Certification } from '@/types';
 
 interface CertificationBadgeProps {
   certifications: Certification[] | string[];
