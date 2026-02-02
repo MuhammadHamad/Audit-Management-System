@@ -57,6 +57,12 @@ export interface Branch {
 
 export type BCKStatus = 'active' | 'inactive' | 'under_maintenance';
 
+export interface Certification {
+  name: string;
+  expiry_date: string;
+  document_url?: string;
+}
+
 export interface BCK {
   id: string;
   code: string;
@@ -72,7 +78,7 @@ export interface BCK {
   status: BCKStatus;
   production_capacity?: string;
   supplies_branches: string[];
-  certifications: string[];
+  certifications: Certification[];
   health_score: number;
   last_audit_date?: string;
   created_at: string;
@@ -95,7 +101,7 @@ export interface Supplier {
   address?: string;
   city?: string;
   registration_number?: string;
-  certifications: string[];
+  certifications: Certification[];
   contract_start?: string;
   contract_end?: string;
   status: SupplierStatus;

@@ -185,8 +185,10 @@ export function SupplierModal({ open, onOpenChange, onSuccess, supplier }: Suppl
         }
       }
 
-      // Convert certifications to the storage format
-      const certifications = (data.certifications || []).map((cert) => cert.name);
+      // Keep certifications in object format, filtering out any incomplete entries
+      const certifications = (data.certifications || [])
+        .filter(cert => cert.name && cert.expiry_date)
+        .map(cert => ({ name: cert.name!, expiry_date: cert.expiry_date! }));
 
       const suppliesTo = {
         bcks: selectedBCKs,

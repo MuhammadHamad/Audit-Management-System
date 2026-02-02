@@ -332,7 +332,9 @@ export const importBranches = (
     address?: string;
     manager_email?: string;
     phone?: string;
+    email?: string;
     status?: string;
+    opening_date?: string;
   }>
 ): { success: number; failed: number } => {
   let success = 0;
@@ -367,7 +369,9 @@ export const importBranches = (
         address: row.address,
         manager_id: managerId,
         phone: row.phone,
+        email: row.email,
         status: (row.status as Branch['status']) || 'active',
+        opening_date: row.opening_date,
       });
       success++;
     } catch {
@@ -378,6 +382,20 @@ export const importBranches = (
   return { success, failed };
 };
 
+// Helper to parse certifications string "HACCP:2026-12-31,ISO22000:2027-06-15"
+const parseCertificationsString = (certStr?: string): Array<{ name: string; expiry_date: string; document_url?: string }> => {
+  if (!certStr?.trim()) return [];
+  const certs: Array<{ name: string; expiry_date: string; document_url?: string }> = [];
+  
+  for (const cert of certStr.split(',')) {
+    const parts = cert.trim().split(':');
+    if (parts.length === 2) {
+      certs.push({ name: parts[0].trim(), expiry_date: parts[1].trim() });
+    }
+  }
+  return certs;
+};
+
 export const importBCKs = (
   data: Array<{
     code: string;
@@ -386,7 +404,11 @@ export const importBCKs = (
     city?: string;
     address?: string;
     manager_email?: string;
+    phone?: string;
+    email?: string;
     production_capacity?: string;
+    supplies_branch_codes?: string;
+    certifications?: string;
     status?: string;
   }>
 ): { success: number; failed: number } => {
@@ -414,6 +436,20 @@ export const importBCKs = (
         }
       }
 
+      // Parse supplies_branch_codes into branch IDs
+      const suppliesBranches: string[] = [];
+      if (row.supplies_branch_codes) {
+        for (const code of row.supplies_branch_codes.split(',')) {
+          const branch = getBranchByCode(code.trim());
+          if (branch) {
+            suppliesBranches.push(branch.id);
+          }
+        }
+      }
+
+      // Parse certifications
+      const certifications = parseCertificationsString(row.certifications);
+
       createBCK({
         code: row.code.toUpperCase(),
         name: row.name,
@@ -421,10 +457,12 @@ export const importBCKs = (
         city: row.city,
         address: row.address,
         manager_id: managerId,
+        phone: row.phone,
+        email: row.email,
         production_capacity: row.production_capacity,
         status: (row.status as BCK['status']) || 'active',
-        supplies_branches: [],
-        certifications: [],
+        supplies_branches: suppliesBranches,
+        certifications: certifications,
       });
       success++;
     } catch {
@@ -439,13 +477,20 @@ export const importSuppliers = (
   data: Array<{
     supplier_code: string;
     name: string;
-    type: string;
+    type?: string;
     category?: string;
     risk_level?: string;
     contact_name?: string;
     contact_phone?: string;
     contact_email?: string;
+    address?: string;
     city?: string;
+    registration_number?: string;
+    contract_start?: string;
+    contract_end?: string;
+    supplies_to_bck_codes?: string;
+    supplies_to_branch_codes?: string;
+    certifications?: string;
     status?: string;
   }>
 ): { success: number; failed: number } => {
@@ -459,6 +504,31 @@ export const importSuppliers = (
         continue;
       }
 
+      // Parse supplies_to BCK codes into IDs
+      const suppliesToBCKs: string[] = [];
+      if (row.supplies_to_bck_codes) {
+        for (const code of row.supplies_to_bck_codes.split(',')) {
+          const bck = getBCKByCode(code.trim());
+          if (bck) {
+            suppliesToBCKs.push(bck.id);
+          }
+        }
+      }
+
+      // Parse supplies_to branch codes into IDs
+      const suppliesToBranches: string[] = [];
+      if (row.supplies_to_branch_codes) {
+        for (const code of row.supplies_to_branch_codes.split(',')) {
+          const branch = getBranchByCode(code.trim());
+          if (branch) {
+            suppliesToBranches.push(branch.id);
+          }
+        }
+      }
+
+      // Parse certifications
+      const certifications = parseCertificationsString(row.certifications);
+
       createSupplier({
         supplier_code: row.supplier_code.toUpperCase(),
         name: row.name,
@@ -468,10 +538,14 @@ export const importSuppliers = (
         contact_name: row.contact_name,
         contact_phone: row.contact_phone,
         contact_email: row.contact_email,
+        address: row.address,
         city: row.city,
+        registration_number: row.registration_number,
+        contract_start: row.contract_start,
+        contract_end: row.contract_end,
         status: (row.status as Supplier['status']) || 'active',
-        certifications: [],
-        supplies_to: { bcks: [], branches: [] },
+        certifications: certifications,
+        supplies_to: { bcks: suppliesToBCKs, branches: suppliesToBranches },
       });
       success++;
     } catch {

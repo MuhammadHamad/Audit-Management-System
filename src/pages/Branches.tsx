@@ -165,37 +165,84 @@ export default function BranchesPage() {
   const importColumns = [
     { key: 'code', label: 'Code' },
     { key: 'name', label: 'Name' },
-    { key: 'region_code', label: 'Region Code' },
+    { key: 'region_code', label: 'Region' },
     { key: 'city', label: 'City' },
+    { key: 'manager_email', label: 'Manager' },
     { key: 'status', label: 'Status' },
   ];
 
-  const validateImportRow = (row: Record<string, string>, rowIndex: number) => {
+  const validateImportRow = (row: Record<string, string>, rowIndex: number, allRows?: Record<string, string>[]) => {
     const errors: { row: number; message: string; field?: string }[] = [];
     const rowNum = rowIndex + 2;
 
+    // Required: code
     if (!row.code?.trim()) {
       errors.push({ row: rowNum, message: 'Code is required', field: 'code' });
-    } else if (getBranchByCode(row.code)) {
-      errors.push({ row: rowNum, message: `Code '${row.code}' already exists`, field: 'code' });
+    } else {
+      const code = row.code.trim().toUpperCase();
+      // Check existing branches
+      if (getBranchByCode(code)) {
+        errors.push({ row: rowNum, message: `Code '${code}' already exists in the system`, field: 'code' });
+      }
+      // Check duplicates within CSV
+      if (allRows) {
+        const duplicates = allRows.filter((r, i) => 
+          i !== rowIndex && r.code?.trim().toUpperCase() === code
+        );
+        if (duplicates.length > 0) {
+          const dupIndices = allRows
+            .map((r, i) => r.code?.trim().toUpperCase() === code ? i + 2 : -1)
+            .filter(i => i > 0 && i !== rowNum);
+          errors.push({ row: rowNum, message: `Duplicate code '${code}' found in rows ${dupIndices.join(', ')}`, field: 'code' });
+        }
+      }
     }
 
+    // Required: name
     if (!row.name?.trim()) {
       errors.push({ row: rowNum, message: 'Name is required', field: 'name' });
+    } else if (row.name.trim().length < 3) {
+      errors.push({ row: rowNum, message: 'Name must be at least 3 characters', field: 'name' });
     }
 
+    // Required: region_code
     if (!row.region_code?.trim()) {
       errors.push({ row: rowNum, message: 'Region code is required', field: 'region_code' });
-    } else if (!getRegionByCode(row.region_code)) {
+    } else if (!getRegionByCode(row.region_code.trim())) {
       errors.push({ row: rowNum, message: `Region '${row.region_code}' does not exist`, field: 'region_code' });
     }
 
+    // Required: city
+    if (!row.city?.trim()) {
+      errors.push({ row: rowNum, message: 'City is required', field: 'city' });
+    }
+
+    // Optional: manager_email
     if (row.manager_email?.trim()) {
-      const manager = getUserByEmail(row.manager_email);
+      const manager = getUserByEmail(row.manager_email.trim());
       if (!manager) {
-        errors.push({ row: rowNum, message: `Manager email '${row.manager_email}' not found`, field: 'manager_email' });
+        errors.push({ row: rowNum, message: `Manager '${row.manager_email}' not found`, field: 'manager_email' });
       } else if (manager.role !== 'branch_manager') {
-        errors.push({ row: rowNum, message: `User '${row.manager_email}' is not a branch manager`, field: 'manager_email' });
+        errors.push({ row: rowNum, message: `User '${row.manager_email}' is not a branch_manager`, field: 'manager_email' });
+      }
+    }
+
+    // Optional: status
+    const validStatuses = ['active', 'inactive', 'under_renovation', 'temporarily_closed'];
+    if (row.status?.trim() && !validStatuses.includes(row.status.trim().toLowerCase())) {
+      errors.push({ row: rowNum, message: `Status '${row.status}' is not valid. Use: ${validStatuses.join(', ')}`, field: 'status' });
+    }
+
+    // Optional: opening_date
+    if (row.opening_date?.trim()) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(row.opening_date.trim())) {
+        errors.push({ row: rowNum, message: 'Opening date must be in YYYY-MM-DD format', field: 'opening_date' });
+      } else {
+        const date = new Date(row.opening_date.trim());
+        if (isNaN(date.getTime())) {
+          errors.push({ row: rowNum, message: 'Opening date is not a valid date', field: 'opening_date' });
+        }
       }
     }
 
@@ -205,14 +252,16 @@ export default function BranchesPage() {
   const handleImport = (data: Record<string, string>[]) => {
     const result = importBranches(
       data.map((row) => ({
-        code: row.code,
-        name: row.name,
-        region_code: row.region_code,
-        city: row.city,
-        address: row.address,
-        manager_email: row.manager_email,
-        phone: row.phone,
-        status: row.status,
+        code: row.code?.trim(),
+        name: row.name?.trim(),
+        region_code: row.region_code?.trim(),
+        city: row.city?.trim(),
+        address: row.address?.trim(),
+        manager_email: row.manager_email?.trim(),
+        phone: row.phone?.trim(),
+        email: row.email?.trim(),
+        status: row.status?.trim().toLowerCase(),
+        opening_date: row.opening_date?.trim(),
       }))
     );
 
@@ -433,9 +482,9 @@ export default function BranchesPage() {
         onSuccess={loadData}
         entityName="Branches"
         templateFileName="branches_import_template.csv"
-        templateContent="code,name,region_code,city,address,manager_email,phone,status\nRYD-001,King Fahd Road Branch,RYD,Riyadh,123 King Fahd Road,branchmgr@burgerizzr.sa,+966501234567,active"
+        templateContent="code,name,region_code,city,address,manager_email,phone,email,status,opening_date\nRYD-001,King Fahd Road Branch,RYD,Riyadh,123 King Fahd Road,branchmgr@burgerizzr.sa,+966501234567,branch001@burgerizzr.sa,active,2020-01-15"
         columns={importColumns}
-        validateRow={validateImportRow}
+        validateRow={(row, index) => validateImportRow(row, index)}
         importData={handleImport}
       />
 
