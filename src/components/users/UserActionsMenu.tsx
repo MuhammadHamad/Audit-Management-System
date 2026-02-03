@@ -18,7 +18,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, Pencil, UserX, UserCheck, KeyRound, Trash2 } from 'lucide-react';
 import { User } from '@/types';
-import { updateUser, deleteUser, resetUserPassword } from '@/lib/userStorage';
+import { updateUser, deleteUser } from '@/lib/userStorage';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface UserActionsMenuProps {
@@ -35,16 +36,16 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
   const isActive = user.status === 'active';
   const canDelete = !user.last_login_at;
 
-  const handleToggleStatus = () => {
+  const handleToggleStatus = async () => {
     const newStatus = isActive ? 'inactive' : 'active';
-    updateUser(user.id, { status: newStatus });
+    await updateUser(user.id, { status: newStatus });
     toast.success(`User ${user.full_name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
     setShowDeactivateDialog(false);
     onRefresh();
   };
 
-  const handleDelete = () => {
-    const success = deleteUser(user.id);
+  const handleDelete = async () => {
+    const success = await deleteUser(user.id);
     if (success) {
       toast.success(`User ${user.full_name} deleted`);
       onRefresh();
@@ -54,11 +55,19 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
     setShowDeleteDialog(false);
   };
 
-  const handleResetPassword = () => {
-    const success = resetUserPassword(user.id);
-    if (success) {
-      toast.success(`Password reset for ${user.full_name}`);
-    } else {
+  const handleResetPassword = async () => {
+    try {
+      // Use Supabase Auth to send password reset email
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      
+      if (error) {
+        toast.error('Failed to send password reset email');
+      } else {
+        toast.success(`Password reset email sent to ${user.email}`);
+      }
+    } catch {
       toast.error('Failed to reset password');
     }
     setShowResetPasswordDialog(false);
@@ -153,14 +162,14 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
           <AlertDialogHeader>
             <AlertDialogTitle>Reset password for {user.full_name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              A new temporary password will be set to: <strong>TempPass123!</strong>
+              A password reset email will be sent to {user.email}.
               <br />
-              They must change it on next login.
+              They will need to click the link to set a new password.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetPassword}>Reset Password</AlertDialogAction>
+            <AlertDialogAction onClick={handleResetPassword}>Send Reset Email</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

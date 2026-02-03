@@ -1,119 +1,242 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Notification } from '@/types';
-import { seedUsers, seedNotifications, userCredentials } from '@/data/seedData';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
+import { User, UserRole, UserStatus, Notification } from '@/types';
+import { initializeCache } from '@/lib/userStorage';
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   notifications: Notification[];
   unreadCount: number;
-  markAllAsRead: () => void;
-  markAsRead: (id: string) => void;
+  markAllAsRead: () => Promise<void>;
+  markAsRead: (id: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'burgerizzr_auth';
-const NOTIFICATIONS_KEY = 'burgerizzr_notifications';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Initialize data on mount
-  useEffect(() => {
-    const storedUser = localStorage.getItem(STORAGE_KEY);
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
-        loadNotifications(parsedUser.id);
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
+  // Fetch user profile from database
+  const fetchUserProfile = async (userId: string): Promise<User | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error || !data) {
+        console.error('Error fetching user profile:', error);
+        return null;
       }
+
+      return {
+        id: data.id,
+        email: data.email,
+        full_name: data.full_name,
+        phone: data.phone || undefined,
+        role: data.role as UserRole,
+        avatar_url: undefined, // Supabase doesn't store avatars in users table by default
+        status: (data.status || 'active') as UserStatus,
+        created_at: data.created_at || '',
+        updated_at: data.updated_at || '',
+        last_login_at: data.last_login || undefined,
+      };
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
     }
-    setIsLoading(false);
+  };
+
+  // Fetch user role from user_roles table
+  const fetchUserRole = async (userId: string): Promise<UserRole | null> => {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_user_role', { _user_id: userId });
+
+      if (error) {
+        console.error('Error fetching user role:', error);
+        return null;
+      }
+
+      return data as UserRole;
+    } catch (error) {
+      console.error('Error fetching user role:', error);
+      return null;
+    }
+  };
+
+  // Load notifications for user
+  const loadNotifications = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('Error loading notifications:', error);
+        return;
+      }
+
+      // Map database notifications to Notification type
+      const mappedNotifications: Notification[] = (data || []).map(n => ({
+        id: n.id,
+        user_id: n.user_id || '',
+        type: n.type,
+        title: n.message.split('\n')[0] || n.type, // Use first line of message as title
+        message: n.message,
+        link_to: n.link_to || undefined,
+        read: n.read || false,
+        created_at: n.created_at || '',
+      }));
+
+      setNotifications(mappedNotifications);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    }
+  };
+
+  // Initialize auth state
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, newSession) => {
+        setSession(newSession);
+        
+        if (newSession?.user) {
+          // Defer Supabase calls with setTimeout to prevent deadlock
+          setTimeout(async () => {
+            const profile = await fetchUserProfile(newSession.user.id);
+            if (profile) {
+              setUser(profile);
+              loadNotifications(newSession.user.id);
+            } else {
+              // User exists in auth but not in users table - clear session
+              setUser(null);
+            }
+            setIsLoading(false);
+          }, 0);
+        } else {
+          setUser(null);
+          setNotifications([]);
+          setIsLoading(false);
+        }
+      }
+    );
+
+    // THEN check for existing session and initialize cache
+    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
+      setSession(existingSession);
+      
+      if (existingSession?.user) {
+        // Initialize the data cache for sync functions
+        await initializeCache();
+        
+        const profile = await fetchUserProfile(existingSession.user.id);
+        if (profile) {
+          setUser(profile);
+          loadNotifications(existingSession.user.id);
+        }
+        setIsLoading(false);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const loadNotifications = (userId: string) => {
-    const stored = localStorage.getItem(NOTIFICATIONS_KEY);
-    if (stored) {
-      const allNotifications: Notification[] = JSON.parse(stored);
-      setNotifications(allNotifications.filter(n => n.user_id === userId));
-    } else {
-      // Initialize with seed notifications
-      localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(seedNotifications));
-      setNotifications(seedNotifications.filter(n => n.user_id === userId));
-    }
-  };
-
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    const storedPassword = userCredentials[email.toLowerCase()];
-    if (!storedPassword || storedPassword !== password) {
-      return { success: false, error: 'Invalid email or password' };
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (!data.user) {
+        return { success: false, error: 'Login failed' };
+      }
+
+      // Fetch user profile to verify they exist in our users table
+      const profile = await fetchUserProfile(data.user.id);
+      
+      if (!profile) {
+        // User exists in auth but not in our users table
+        await supabase.auth.signOut();
+        return { success: false, error: 'User account not found. Please contact an administrator.' };
+      }
+
+      if (profile.status !== 'active') {
+        await supabase.auth.signOut();
+        return { success: false, error: 'Account is inactive' };
+      }
+
+      // Update last login
+      await supabase
+        .from('users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', data.user.id);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { success: false, error: 'An unexpected error occurred' };
     }
-
-    const foundUser = seedUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!foundUser) {
-      return { success: false, error: 'User not found' };
-    }
-
-    if (foundUser.status !== 'active') {
-      return { success: false, error: 'Account is inactive' };
-    }
-
-    const loggedInUser = {
-      ...foundUser,
-      last_login_at: new Date().toISOString(),
-    };
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(loggedInUser));
-    setUser(loggedInUser);
-    loadNotifications(loggedInUser.id);
-
-    return { success: true };
   };
 
-  const logout = () => {
-    localStorage.removeItem(STORAGE_KEY);
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
+    setSession(null);
     setNotifications([]);
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
     if (!user) return;
     
-    const allNotifications: Notification[] = JSON.parse(
-      localStorage.getItem(NOTIFICATIONS_KEY) || '[]'
-    );
-    
-    const updated = allNotifications.map(n => 
-      n.user_id === user.id ? { ...n, read: true } : n
-    );
-    
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(updated));
-    setNotifications(updated.filter(n => n.user_id === user.id));
+    try {
+      await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+      
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch (error) {
+      console.error('Error marking notifications as read:', error);
+    }
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
     if (!user) return;
     
-    const allNotifications: Notification[] = JSON.parse(
-      localStorage.getItem(NOTIFICATIONS_KEY) || '[]'
-    );
-    
-    const updated = allNotifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    );
-    
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(updated));
-    setNotifications(updated.filter(n => n.user_id === user.id));
+    try {
+      await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+      
+      setNotifications(prev => prev.map(n => 
+        n.id === id ? { ...n, read: true } : n
+      ));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -122,6 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        session,
         isLoading,
         login,
         logout,

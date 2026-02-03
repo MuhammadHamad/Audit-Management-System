@@ -7,9 +7,16 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Flame, Loader2 } from 'lucide-react';
+import { z } from 'zod';
+
+// Input validation schema
+const loginSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
 
 export default function LoginPage() {
-  const { user, login } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,9 +28,26 @@ export default function LoginPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
+  // Show loading while checking auth state
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-muted to-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Validate input
+    const validation = loginSchema.safeParse({ email, password });
+    if (!validation.success) {
+      setError(validation.error.errors[0].message);
+      return;
+    }
+
     setIsLoading(true);
 
     const result = await login(email, password);
@@ -31,7 +55,14 @@ export default function LoginPage() {
     if (result.success) {
       navigate('/dashboard');
     } else {
-      setError(result.error || 'Login failed');
+      // Map Supabase errors to user-friendly messages
+      let errorMessage = result.error || 'Login failed';
+      if (errorMessage.includes('Invalid login credentials')) {
+        errorMessage = 'Invalid email or password';
+      } else if (errorMessage.includes('Email not confirmed')) {
+        errorMessage = 'Please verify your email address before logging in';
+      }
+      setError(errorMessage);
     }
     
     setIsLoading(false);
@@ -67,6 +98,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={isLoading}
+                autoComplete="email"
               />
             </div>
             
@@ -80,16 +112,8 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
+                autoComplete="current-password"
               />
-              <div className="text-right">
-                <button
-                  type="button"
-                  className="text-sm text-primary hover:underline"
-                  onClick={() => {}}
-                >
-                  Forgot password?
-                </button>
-              </div>
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
@@ -104,11 +128,8 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Demo credentials hint */}
-          <div className="mt-6 rounded-md bg-muted p-3 text-xs text-muted-foreground">
-            <p className="font-medium">Demo Credentials:</p>
-            <p>Email: admin@burgerizzr.sa</p>
-            <p>Password: Admin123!</p>
+          <div className="mt-6 text-center text-sm text-muted-foreground">
+            <p>Contact your administrator if you need access.</p>
           </div>
         </CardContent>
       </Card>

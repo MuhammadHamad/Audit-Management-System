@@ -68,14 +68,20 @@ export default function UsersPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true);
-    // Simulate loading delay for skeleton state
-    setTimeout(() => {
-      setUsers(getUsers());
-      setAssignments(getUserAssignments());
+    try {
+      const [usersData, assignmentsData] = await Promise.all([
+        import('@/lib/userStorage').then(m => m.fetchUsers()),
+        import('@/lib/userStorage').then(m => m.fetchUserAssignments()),
+      ]);
+      setUsers(usersData);
+      setAssignments(assignmentsData);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    } finally {
       setIsLoading(false);
-    }, 300);
+    }
   };
 
   useEffect(() => {

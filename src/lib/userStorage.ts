@@ -1,194 +1,378 @@
-import { User, UserAssignment, Region, Branch, BCK } from '@/types';
-import { seedUsers, seedUserAssignments, seedRegions, seedBranches, seedBCKs, userCredentials } from '@/data/seedData';
+import { User, UserAssignment, Region, Branch, BCK, UserRole } from '@/types';
+import { supabase } from '@/integrations/supabase/client';
 
-const USERS_KEY = 'burgerizzr_users';
-const ASSIGNMENTS_KEY = 'burgerizzr_user_assignments';
-const REGIONS_KEY = 'burgerizzr_regions';
-const BRANCHES_KEY = 'burgerizzr_branches';
-const BCKS_KEY = 'burgerizzr_bcks';
-const CREDENTIALS_KEY = 'burgerizzr_credentials';
+// NOTE: This file provides both sync and async functions for data operations
+// Sync functions use cached data for backward compatibility
+// Async functions fetch fresh data from Supabase
 
-// Initialize storage with seed data if empty
-export const initializeStorage = () => {
-  if (!localStorage.getItem(USERS_KEY)) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(seedUsers));
-  }
-  if (!localStorage.getItem(ASSIGNMENTS_KEY)) {
-    localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(seedUserAssignments));
-  }
-  if (!localStorage.getItem(REGIONS_KEY)) {
-    localStorage.setItem(REGIONS_KEY, JSON.stringify(seedRegions));
-  }
-  if (!localStorage.getItem(BRANCHES_KEY)) {
-    localStorage.setItem(BRANCHES_KEY, JSON.stringify(seedBranches));
-  }
-  if (!localStorage.getItem(BCKS_KEY)) {
-    localStorage.setItem(BCKS_KEY, JSON.stringify(seedBCKs));
-  }
-  if (!localStorage.getItem(CREDENTIALS_KEY)) {
-    localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(userCredentials));
+// Cache for sync operations
+let cachedUsers: User[] = [];
+let cachedAssignments: UserAssignment[] = [];
+let cachedRegions: Region[] = [];
+let cachedBranches: Branch[] = [];
+let cachedBCKs: BCK[] = [];
+let cacheInitialized = false;
+
+// Initialize cache from Supabase
+export const initializeCache = async () => {
+  try {
+    const [usersRes, assignmentsRes, regionsRes, branchesRes, bcksRes] = await Promise.all([
+      supabase.from('users').select('*').order('full_name'),
+      supabase.from('user_assignments').select('*'),
+      supabase.from('regions').select('*').order('name'),
+      supabase.from('branches').select('*').order('name'),
+      supabase.from('bcks').select('*').order('name'),
+    ]);
+
+    if (usersRes.data) {
+      cachedUsers = usersRes.data.map(mapUser);
+    }
+    if (assignmentsRes.data) {
+      cachedAssignments = assignmentsRes.data.map(mapAssignment);
+    }
+    if (regionsRes.data) {
+      cachedRegions = regionsRes.data.map(mapRegion);
+    }
+    if (branchesRes.data) {
+      cachedBranches = branchesRes.data.map(mapBranch);
+    }
+    if (bcksRes.data) {
+      cachedBCKs = bcksRes.data.map(mapBCK);
+    }
+    cacheInitialized = true;
+  } catch (error) {
+    console.error('Error initializing cache:', error);
   }
 };
 
-// Users CRUD
-export const getUsers = (): User[] => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-};
+// Mapping functions
+const mapUser = (u: any): User => ({
+  id: u.id,
+  email: u.email,
+  full_name: u.full_name,
+  phone: u.phone || undefined,
+  role: u.role as UserRole,
+  avatar_url: undefined,
+  status: (u.status || 'active') as 'active' | 'inactive',
+  created_at: u.created_at || '',
+  updated_at: u.updated_at || '',
+  last_login_at: u.last_login || undefined,
+});
+
+const mapAssignment = (a: any): UserAssignment => ({
+  id: a.id,
+  user_id: a.user_id || '',
+  assigned_type: a.assigned_type as 'region' | 'branch' | 'bck',
+  assigned_id: a.assigned_id,
+  created_at: a.created_at || '',
+});
+
+const mapRegion = (r: any): Region => ({
+  id: r.id,
+  name: r.name,
+  code: r.code,
+  description: r.description || undefined,
+  manager_id: r.manager_id || undefined,
+  status: 'active' as const,
+  created_at: r.created_at || '',
+  updated_at: r.updated_at || '',
+});
+
+const mapBranch = (b: any): Branch => ({
+  id: b.id,
+  code: b.code,
+  name: b.name,
+  region_id: b.region_id || '',
+  city: b.city,
+  address: b.address || undefined,
+  manager_id: b.manager_id || undefined,
+  phone: b.phone || undefined,
+  email: b.email || undefined,
+  status: (b.status || 'active') as 'active' | 'inactive' | 'under_renovation' | 'temporarily_closed',
+  opening_date: b.opening_date || undefined,
+  health_score: b.health_score || 0,
+  created_at: b.created_at || '',
+  updated_at: b.updated_at || '',
+});
+
+const mapBCK = (b: any): BCK => ({
+  id: b.id,
+  code: b.code,
+  name: b.name,
+  region_id: b.region_id || '',
+  city: b.city,
+  address: b.address || undefined,
+  manager_id: b.manager_id || undefined,
+  phone: b.phone || undefined,
+  email: b.email || undefined,
+  status: (b.status || 'active') as 'active' | 'inactive' | 'under_maintenance',
+  production_capacity: b.production_capacity?.toString(),
+  supplies_branches: Array.isArray(b.supplies_branches) ? b.supplies_branches as string[] : [],
+  certifications: Array.isArray(b.certifications) ? b.certifications as { name: string; expiry_date: string; document_url?: string }[] : [],
+  health_score: b.health_score || 0,
+  created_at: b.created_at || '',
+  updated_at: b.updated_at || '',
+});
+
+// ============= SYNC FUNCTIONS (use cached data) =============
+
+// Users
+export const getUsers = (): User[] => cachedUsers;
 
 export const getUserById = (id: string): User | undefined => {
-  return getUsers().find(u => u.id === id);
+  return cachedUsers.find(u => u.id === id);
 };
 
 export const getUserByEmail = (email: string): User | undefined => {
-  return getUsers().find(u => u.email.toLowerCase() === email.toLowerCase());
+  return cachedUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
 };
 
-export const createUser = (user: Omit<User, 'id' | 'created_at' | 'updated_at'>): User => {
-  const users = getUsers();
-  const newUser: User = {
-    ...user,
-    id: crypto.randomUUID(),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  users.push(newUser);
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// User Assignments
+export const getUserAssignments = (): UserAssignment[] => cachedAssignments;
+
+export const getAssignmentsForUser = (userId: string): UserAssignment[] => {
+  return cachedAssignments.filter(a => a.user_id === userId);
+};
+
+// Regions
+export const getRegions = (): Region[] => cachedRegions;
+
+export const getRegionById = (id: string): Region | undefined => {
+  return cachedRegions.find(r => r.id === id);
+};
+
+// Branches
+export const getBranches = (): Branch[] => cachedBranches;
+
+export const getBranchById = (id: string): Branch | undefined => {
+  return cachedBranches.find(b => b.id === id);
+};
+
+export const getBranchByCode = (code: string): Branch | undefined => {
+  return cachedBranches.find(b => b.code === code);
+};
+
+// BCKs
+export const getBCKs = (): BCK[] => cachedBCKs;
+
+export const getBCKById = (id: string): BCK | undefined => {
+  return cachedBCKs.find(b => b.id === id);
+};
+
+export const getBCKByCode = (code: string): BCK | undefined => {
+  return cachedBCKs.find(b => b.code === code);
+};
+
+// ============= ASYNC FUNCTIONS (fetch from Supabase) =============
+
+export const fetchUsers = async (): Promise<User[]> => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .order('full_name');
   
-  // Set default password
-  const credentials = getCredentials();
-  credentials[newUser.email.toLowerCase()] = 'TempPass123!';
-  localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
+  if (error) {
+    console.error('Error fetching users:', error);
+    return cachedUsers;
+  }
+  
+  cachedUsers = data.map(mapUser);
+  return cachedUsers;
+};
+
+export const fetchUserAssignments = async (): Promise<UserAssignment[]> => {
+  const { data, error } = await supabase
+    .from('user_assignments')
+    .select('*');
+  
+  if (error) {
+    console.error('Error fetching assignments:', error);
+    return cachedAssignments;
+  }
+  
+  cachedAssignments = data.map(mapAssignment);
+  return cachedAssignments;
+};
+
+export const fetchRegions = async (): Promise<Region[]> => {
+  const { data, error } = await supabase
+    .from('regions')
+    .select('*')
+    .order('name');
+  
+  if (error) {
+    console.error('Error fetching regions:', error);
+    return cachedRegions;
+  }
+  
+  cachedRegions = data.map(mapRegion);
+  return cachedRegions;
+};
+
+export const fetchBranches = async (): Promise<Branch[]> => {
+  const { data, error } = await supabase
+    .from('branches')
+    .select('*')
+    .order('name');
+  
+  if (error) {
+    console.error('Error fetching branches:', error);
+    return cachedBranches;
+  }
+  
+  cachedBranches = data.map(mapBranch);
+  return cachedBranches;
+};
+
+export const fetchBCKs = async (): Promise<BCK[]> => {
+  const { data, error } = await supabase
+    .from('bcks')
+    .select('*')
+    .order('name');
+  
+  if (error) {
+    console.error('Error fetching BCKs:', error);
+    return cachedBCKs;
+  }
+  
+  cachedBCKs = data.map(mapBCK);
+  return cachedBCKs;
+};
+
+// ============= MUTATION FUNCTIONS =============
+
+// NOTE: User creation should be done through Supabase Auth
+// This function only creates the user record in the users table
+export const createUser = async (user: {
+  id?: string;
+  email: string;
+  full_name: string;
+  phone?: string;
+  role: UserRole;
+}): Promise<User | null> => {
+  const { data, error } = await supabase
+    .from('users')
+    .insert({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone,
+      role: user.role,
+      status: 'active',
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error creating user record:', error);
+    return null;
+  }
+  
+  const newUser = mapUser(data);
+  cachedUsers = [...cachedUsers, newUser];
+  
+  // Also create the user role entry
+  await supabase
+    .from('user_roles')
+    .insert({
+      user_id: data.id,
+      role: user.role,
+    });
   
   return newUser;
 };
 
-export const updateUser = (id: string, updates: Partial<User>): User | null => {
-  const users = getUsers();
-  const index = users.findIndex(u => u.id === id);
-  if (index === -1) return null;
+export const updateUser = async (id: string, updates: Partial<User>): Promise<User | null> => {
+  const { data, error } = await supabase
+    .from('users')
+    .update({
+      full_name: updates.full_name,
+      phone: updates.phone,
+      status: updates.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
   
-  users[index] = {
-    ...users[index],
-    ...updates,
-    updated_at: new Date().toISOString(),
-  };
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  return users[index];
+  if (error || !data) {
+    console.error('Error updating user:', error);
+    return null;
+  }
+  
+  const updatedUser = mapUser(data);
+  cachedUsers = cachedUsers.map(u => u.id === id ? updatedUser : u);
+  return updatedUser;
 };
 
-export const deleteUser = (id: string): boolean => {
-  const users = getUsers();
-  const user = users.find(u => u.id === id);
-  if (!user || user.last_login_at) return false; // Can't delete users who have logged in
-  
-  const filtered = users.filter(u => u.id !== id);
-  localStorage.setItem(USERS_KEY, JSON.stringify(filtered));
-  
-  // Also delete their assignments
-  const assignments = getUserAssignments().filter(a => a.user_id !== id);
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
-  
-  // Delete credentials
-  const credentials = getCredentials();
-  delete credentials[user.email.toLowerCase()];
-  localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
-  
-  return true;
-};
-
-export const resetUserPassword = (id: string): boolean => {
+export const deleteUser = async (id: string): Promise<boolean> => {
   const user = getUserById(id);
-  if (!user) return false;
+  if (!user || user.last_login_at) return false;
   
-  const credentials = getCredentials();
-  credentials[user.email.toLowerCase()] = 'TempPass123!';
-  localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('id', id);
+  
+  if (error) {
+    console.error('Error deleting user:', error);
+    return false;
+  }
+  
+  cachedUsers = cachedUsers.filter(u => u.id !== id);
+  cachedAssignments = cachedAssignments.filter(a => a.user_id !== id);
   return true;
 };
 
-// Credentials
-export const getCredentials = (): Record<string, string> => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(CREDENTIALS_KEY) || '{}');
-};
-
-// User Assignments
-export const getUserAssignments = (): UserAssignment[] => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(ASSIGNMENTS_KEY) || '[]');
-};
-
-export const getAssignmentsForUser = (userId: string): UserAssignment[] => {
-  return getUserAssignments().filter(a => a.user_id === userId);
-};
-
-export const createAssignment = (assignment: Omit<UserAssignment, 'id' | 'created_at'>): UserAssignment => {
-  const assignments = getUserAssignments();
-  const newAssignment: UserAssignment = {
-    ...assignment,
-    id: crypto.randomUUID(),
-    created_at: new Date().toISOString(),
-  };
-  assignments.push(newAssignment);
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
+export const createAssignment = async (assignment: Omit<UserAssignment, 'id' | 'created_at'>): Promise<UserAssignment | null> => {
+  const { data, error } = await supabase
+    .from('user_assignments')
+    .insert({
+      user_id: assignment.user_id,
+      assigned_type: assignment.assigned_type,
+      assigned_id: assignment.assigned_id,
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error creating assignment:', error);
+    return null;
+  }
+  
+  const newAssignment = mapAssignment(data);
+  cachedAssignments = [...cachedAssignments, newAssignment];
   return newAssignment;
 };
 
-export const deleteAssignmentsForUser = (userId: string): void => {
-  const assignments = getUserAssignments().filter(a => a.user_id !== userId);
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
+export const deleteAssignmentsForUser = async (userId: string): Promise<void> => {
+  const { error } = await supabase
+    .from('user_assignments')
+    .delete()
+    .eq('user_id', userId);
+  
+  if (error) {
+    console.error('Error deleting assignments:', error);
+  }
+  
+  cachedAssignments = cachedAssignments.filter(a => a.user_id !== userId);
 };
 
-// Regions
-export const getRegions = (): Region[] => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(REGIONS_KEY) || '[]');
-};
+// NOTE: Password reset is handled by Supabase Auth, not here
+// Use supabase.auth.resetPasswordForEmail() instead
 
-export const getRegionById = (id: string): Region | undefined => {
-  return getRegions().find(r => r.id === id);
-};
-
-// Branches
-export const getBranches = (): Branch[] => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(BRANCHES_KEY) || '[]');
-};
-
-export const getBranchById = (id: string): Branch | undefined => {
-  return getBranches().find(b => b.id === id);
-};
-
-export const getBranchByCode = (code: string): Branch | undefined => {
-  return getBranches().find(b => b.code === code);
-};
-
-// BCKs
-export const getBCKs = (): BCK[] => {
-  initializeStorage();
-  return JSON.parse(localStorage.getItem(BCKS_KEY) || '[]');
-};
-
-export const getBCKById = (id: string): BCK | undefined => {
-  return getBCKs().find(b => b.id === id);
-};
-
-export const getBCKByCode = (code: string): BCK | undefined => {
-  return getBCKs().find(b => b.code === code);
-};
-
-// Import users helper
-export const importUsers = (
+// Import users helper - now creates users through the database
+// Note: This does NOT create Supabase Auth users - those must be created separately
+export const importUsers = async (
   users: Array<{
     full_name: string;
     email: string;
     phone?: string;
-    role: User['role'];
+    role: UserRole;
     assigned_to_type?: 'region' | 'branch' | 'bck';
     assigned_to_code?: string;
   }>
-): { success: number; failed: number } => {
+): Promise<{ success: number; failed: number }> => {
   let success = 0;
   let failed = 0;
 
@@ -200,13 +384,17 @@ export const importUsers = (
         continue;
       }
 
-      const user = createUser({
+      const user = await createUser({
         email: userData.email,
         full_name: userData.full_name,
         phone: userData.phone,
         role: userData.role,
-        status: 'active',
       });
+
+      if (!user) {
+        failed++;
+        continue;
+      }
 
       // Create assignment if specified
       if (userData.assigned_to_type && userData.assigned_to_code) {
@@ -224,7 +412,7 @@ export const importUsers = (
         }
 
         if (assignedId) {
-          createAssignment({
+          await createAssignment({
             user_id: user.id,
             assigned_type: userData.assigned_to_type,
             assigned_id: assignedId,
@@ -239,4 +427,9 @@ export const importUsers = (
   }
 
   return { success, failed };
+};
+
+// Refresh all caches
+export const refreshCache = async () => {
+  await initializeCache();
 };

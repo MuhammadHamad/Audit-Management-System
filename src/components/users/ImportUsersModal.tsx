@@ -204,7 +204,7 @@ export function ImportUsersModal({ open, onOpenChange, onSuccess }: ImportUsersM
         assigned_to_code: row.assigned_to_code,
       }));
 
-      const result = importUsers(usersToImport);
+      const result = await importUsers(usersToImport);
 
       if (result.failed === 0) {
         toast.success(`${result.success} users imported successfully`);
