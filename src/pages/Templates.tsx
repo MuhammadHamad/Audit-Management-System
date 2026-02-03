@@ -71,13 +71,17 @@ export default function TemplatesPage() {
     loadData();
   }, []);
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true);
-    setTimeout(() => {
+    try {
       setTemplates(getTemplates());
-      setUsers(getUsers());
+      const usersData = await import('@/lib/userStorage').then(m => m.fetchUsers());
+      setUsers(usersData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
       setIsLoading(false);
-    }, 300);
+    }
   };
 
   const filteredTemplates = useMemo(() => {

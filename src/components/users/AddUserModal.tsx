@@ -137,20 +137,24 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
     setIsSubmitting(true);
 
     try {
-      const user = createUser({
+      const user = await createUser({
         email: data.email,
         full_name: data.full_name,
         phone: data.phone || undefined,
         role: data.role,
-        status: 'active',
       });
+
+      if (!user) {
+        toast.error('Failed to create user. Please try again.');
+        return;
+      }
 
       // Create assignment if needed
       if (data.assigned_id && needsAssignment) {
         const options = getAssignmentOptions();
         const selected = options.find(o => o.id === data.assigned_id);
         if (selected) {
-          createAssignment({
+          await createAssignment({
             user_id: user.id,
             assigned_type: selected.type,
             assigned_id: selected.id,

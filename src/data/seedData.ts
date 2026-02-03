@@ -25,7 +25,7 @@ const regionalManagerId = generateId();
 const auditorId = generateId();
 const branchManagerId = generateId();
 
-// Seed Users
+// Seed Users (for reference data only - authentication is handled by Supabase Auth)
 export const seedUsers: User[] = [
   {
     id: superAdminId,
@@ -239,11 +239,6 @@ export const seedNotifications: Notification[] = [
   },
 ];
 
-// User credentials for mock authentication
-export const userCredentials: Record<string, string> = {
-  'admin@burgerizzr.sa': 'Admin123!',
-  'auditmanager@burgerizzr.sa': 'Admin123!',
-  'regionalmgr@burgerizzr.sa': 'Admin123!',
-  'auditor1@burgerizzr.sa': 'Admin123!',
-  'branchmgr@burgerizzr.sa': 'Admin123!',
-};
+// NOTE: User credentials are now managed by Supabase Auth
+// Do NOT store passwords in client-side code
+// Users must be created through Supabase Auth dashboard or admin API
