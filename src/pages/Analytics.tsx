@@ -69,11 +69,7 @@ export default function AnalyticsPage() {
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedMonth, setSelectedMonth] = useState<number | undefined>(undefined);
   
-  // Block access for non-admin roles
-  if (!user || !['super_admin', 'audit_manager'].includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-  
+  // All hooks must be called before any conditional returns
   const availableYears = useMemo(() => getAvailableYears(), []);
   const summary = useMemo(() => getAnalyticsSummary(selectedYear), [selectedYear]);
   const auditVolume = useMemo(() => getAuditVolumeByYear(selectedYear), [selectedYear]);
@@ -88,6 +84,11 @@ export default function AnalyticsPage() {
     totalAudits: { label: 'Total Audits', color: 'hsl(var(--muted-foreground))' },
     averageScore: { label: 'Average Score', color: 'hsl(var(--primary))' },
   };
+  
+  // Block access for non-admin roles (after all hooks)
+  if (!user || !['super_admin', 'audit_manager'].includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <div className="space-y-6 p-6">
