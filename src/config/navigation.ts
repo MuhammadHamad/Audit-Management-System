@@ -98,6 +98,12 @@ export const navigationConfig: NavSection[] = [
     title: 'REPORTS',
     items: [
       {
+        title: 'Analytics',
+        href: '/analytics',
+        icon: 'TrendingUp',
+        roles: ['super_admin', 'audit_manager'],
+      },
+      {
         title: 'Reports',
         href: '/reports',
         icon: 'BarChart3',
