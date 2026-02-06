@@ -34,6 +34,7 @@ const CAPADetailPage = lazy(() => import("@/pages/CAPADetail"));
 const IncidentsPage = lazy(() => import("@/pages/Incidents"));
 const IncidentCreatePage = lazy(() => import("@/pages/IncidentCreate"));
 const IncidentDetailPage = lazy(() => import("@/pages/IncidentDetail"));
+const AnalyticsPage = lazy(() => import("@/pages/Analytics"));
 const ReportsPage = lazy(() => import("@/pages/Reports"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const ProfilePage = lazy(() => import("@/pages/Profile"));
