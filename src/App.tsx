@@ -34,6 +34,7 @@ const CAPADetailPage = lazy(() => import("@/pages/CAPADetail"));
 const IncidentsPage = lazy(() => import("@/pages/Incidents"));
 const IncidentCreatePage = lazy(() => import("@/pages/IncidentCreate"));
 const IncidentDetailPage = lazy(() => import("@/pages/IncidentDetail"));
+const AnalyticsPage = lazy(() => import("@/pages/Analytics"));
 const ReportsPage = lazy(() => import("@/pages/Reports"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const ProfilePage = lazy(() => import("@/pages/Profile"));
@@ -104,6 +105,7 @@ const App = () => (
                   <Route path="/incidents" element={<Suspense fallback={<PageLoader />}><IncidentsPage /></Suspense>} />
                   <Route path="/incidents/create" element={<Suspense fallback={<PageLoader />}><IncidentCreatePage /></Suspense>} />
                   <Route path="/incidents/:id" element={<Suspense fallback={<PageLoader />}><IncidentDetailPage /></Suspense>} />
+                  <Route path="/analytics" element={<Suspense fallback={<PageLoader />}><AnalyticsPage /></Suspense>} />
                   <Route path="/reports" element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
                   <Route path="/settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
                   <Route path="/profile" element={<Suspense fallback={<PageLoader />}><ProfilePage /></Suspense>} />

@@ -98,6 +98,12 @@ export const navigationConfig: NavSection[] = [
     title: 'REPORTS',
     items: [
       {
+        title: 'Analytics',
+        href: '/analytics',
+        icon: 'TrendingUp',
+        roles: ['super_admin', 'audit_manager'],
+      },
+      {
         title: 'Reports',
         href: '/reports',
         icon: 'BarChart3',
@@ -132,6 +138,7 @@ export const routeAccess: Record<string, UserRole[]> = {
   '/audits/pending-verification': ['super_admin', 'audit_manager', 'regional_manager'],
   '/capa': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager', 'staff'],
   '/incidents': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],
+  '/analytics': ['super_admin', 'audit_manager'],
   '/reports': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],
   '/settings': ['super_admin'],
   '/profile': ['super_admin', 'audit_manager', 'regional_manager', 'auditor', 'branch_manager', 'bck_manager', 'staff'],
