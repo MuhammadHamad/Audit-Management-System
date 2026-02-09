@@ -19,10 +19,7 @@ import {
   getSuppliers,
   getRegions,
   getUsersByRole,
-  getUserById,
-  updateBranch,
-  updateBCK,
-  updateSupplier
+  getUserById
 } from './entityStorage';
 import { getAssignmentsForUser } from './userStorage';
 

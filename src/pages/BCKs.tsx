@@ -39,20 +39,19 @@ import { HealthScoreIndicator } from '@/components/entities/HealthScoreIndicator
 import { CertificationBadge } from '@/components/entities/CertificationBadge';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { BCKModal } from '@/components/bcks/BCKModal';
-import { BCK, Region } from '@/types';
+import { BCK } from '@/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getUserById, getUserByEmail } from '@/lib/userStorage';
 import {
-  getBCKs,
-  getRegions,
-  deleteBCK,
+  fetchBCKs,
+  fetchRegions,
+  fetchBranches,
+  fetchBCKByCode,
+  fetchRegionByCode,
+  createBCK,
   updateBCK,
-  getBCKByCode,
-  getRegionById,
-  getRegionByCode,
-  getUserById,
-  getUserByEmail,
-  getBranchByCode,
-  importBCKs,
-} from '@/lib/entityStorage';
+  deleteBCK,
+} from '@/lib/entitySupabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
@@ -69,9 +68,21 @@ export default function BCKsPage() {
   const { user } = useAuth();
   const canEdit = user?.role === 'super_admin';
 
-  const [bcks, setBCKs] = useState<BCK[]>([]);
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: bcks = [], isLoading: isBCKsLoading } = useQuery({
+    queryKey: ['bcks'],
+    queryFn: fetchBCKs,
+  });
+  const { data: regions = [], isLoading: isRegionsLoading } = useQuery({
+    queryKey: ['regions'],
+    queryFn: fetchRegions,
+  });
+  const { data: branches = [], isLoading: isBranchesLoading } = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+  });
+
+  const isLoading = isBCKsLoading || isRegionsLoading || isBranchesLoading;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
@@ -83,18 +94,13 @@ export default function BCKsPage() {
   const [editingBCK, setEditingBCK] = useState<BCK | null>(null);
   const [deletingBCK, setDeletingBCK] = useState<BCK | null>(null);
 
-  const loadData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setBCKs(getBCKs());
-      setRegions(getRegions());
-      setIsLoading(false);
-    }, 300);
+  const loadData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['bcks'] }),
+      queryClient.invalidateQueries({ queryKey: ['regions'] }),
+      queryClient.invalidateQueries({ queryKey: ['branches'] }),
+    ]);
   };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   // Filter BCKs
   const filteredBCKs = useMemo(() => {
@@ -123,22 +129,32 @@ export default function BCKsPage() {
     setCurrentPage(1);
   }, [search, statusFilter, regionFilter]);
 
-  const handleToggleStatus = (bck: BCK) => {
+  const handleToggleStatus = async (bck: BCK) => {
     const newStatus = bck.status === 'active' ? 'inactive' : 'active';
-    updateBCK(bck.id, { status: newStatus });
-    toast.success(`BCK ${bck.name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
-    loadData();
+    try {
+      await updateBCK(bck.id, { status: newStatus });
+      toast.success(`BCK ${bck.name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
+      await loadData();
+    } catch {
+      toast.error('Failed to update BCK status');
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingBCK) return;
 
-    const result = deleteBCK(deletingBCK.id);
-    if (result.success) {
+    if (deletingBCK.last_audit_date) {
+      toast.error('Cannot delete. This BCK has audit history. Deactivate it instead.');
+      setDeletingBCK(null);
+      return;
+    }
+
+    try {
+      await deleteBCK(deletingBCK.id);
       toast.success(`BCK ${deletingBCK.name} deleted successfully`);
-      loadData();
-    } else {
-      toast.error(result.error);
+      await loadData();
+    } catch {
+      toast.error('Failed to delete BCK');
     }
     setDeletingBCK(null);
   };
@@ -184,7 +200,7 @@ export default function BCKsPage() {
     const invalidCodes: string[] = [];
     for (const code of codesStr.split(',')) {
       const trimmedCode = code.trim();
-      if (trimmedCode && !getBranchByCode(trimmedCode)) {
+      if (trimmedCode && !branches.some((b) => b.code.toUpperCase() === trimmedCode.toUpperCase())) {
         invalidCodes.push(trimmedCode);
       }
     }
@@ -200,7 +216,7 @@ export default function BCKsPage() {
       errors.push({ row: rowNum, message: 'Code is required', field: 'code' });
     } else {
       const code = row.code.trim().toUpperCase();
-      if (getBCKByCode(code)) {
+      if (bcks.some((b) => b.code.toUpperCase() === code)) {
         errors.push({ row: rowNum, message: `Code '${code}' already exists in the system`, field: 'code' });
       }
       // Check duplicates within CSV
@@ -222,7 +238,7 @@ export default function BCKsPage() {
     // Required: region_code
     if (!row.region_code?.trim()) {
       errors.push({ row: rowNum, message: 'Region code is required', field: 'region_code' });
-    } else if (!getRegionByCode(row.region_code.trim())) {
+    } else if (!regions.some((r) => r.code.toUpperCase() === row.region_code.trim().toUpperCase())) {
       errors.push({ row: rowNum, message: `Region '${row.region_code}' does not exist`, field: 'region_code' });
     }
 
@@ -274,31 +290,87 @@ export default function BCKsPage() {
     return errors;
   };
 
-  const handleImport = (data: Record<string, string>[]) => {
-    const result = importBCKs(
-      data.map((row) => ({
-        code: row.code?.trim(),
-        name: row.name?.trim(),
-        region_code: row.region_code?.trim(),
-        city: row.city?.trim(),
-        address: row.address?.trim(),
-        manager_email: row.manager_email?.trim(),
-        phone: row.phone?.trim(),
-        email: row.email?.trim(),
-        production_capacity: row.production_capacity?.trim(),
-        supplies_branch_codes: row.supplies_branch_codes?.trim(),
-        certifications: row.certifications?.trim(),
-        status: row.status?.trim().toLowerCase(),
-      }))
-    );
+  const handleImport = async (data: Record<string, string>[]) => {
+    let success = 0;
+    let failed = 0;
 
-    if (result.failed === 0) {
-      toast.success(`${result.success} BCKs imported successfully`);
-    } else {
-      toast.warning(`${result.success} of ${result.success + result.failed} BCKs imported. ${result.failed} failed.`);
+    const branchCodeToId = new Map(branches.map((b) => [b.code.toUpperCase(), b.id]));
+
+    for (const row of data) {
+      try {
+        const code = (row.code || '').trim();
+        const name = (row.name || '').trim();
+        const regionCode = (row.region_code || '').trim();
+        const city = (row.city || '').trim();
+
+        if (!code || !name || !regionCode || !city) {
+          failed++;
+          continue;
+        }
+
+        const existing = await fetchBCKByCode(code);
+        if (existing) {
+          failed++;
+          continue;
+        }
+
+        const region = await fetchRegionByCode(regionCode);
+        if (!region) {
+          failed++;
+          continue;
+        }
+
+        let managerId: string | undefined;
+        if (row.manager_email?.trim()) {
+          const manager = getUserByEmail(row.manager_email.trim());
+          if (manager?.role === 'bck_manager') managerId = manager.id;
+        }
+
+        const suppliesBranchIds: string[] = [];
+        if (row.supplies_branch_codes?.trim()) {
+          for (const c of row.supplies_branch_codes.split(',')) {
+            const trimmed = c.trim();
+            if (!trimmed) continue;
+            const id = branchCodeToId.get(trimmed.toUpperCase());
+            if (id) suppliesBranchIds.push(id);
+          }
+        }
+
+        const certifications = row.certifications?.trim() ? (parseCertifications(row.certifications.trim()) ?? []) : [];
+        if (row.certifications?.trim() && certifications === null) {
+          failed++;
+          continue;
+        }
+
+        await createBCK({
+          code,
+          name,
+          region_id: region.id,
+          city,
+          address: row.address?.trim() || undefined,
+          manager_id: managerId,
+          phone: row.phone?.trim() || undefined,
+          email: row.email?.trim() || undefined,
+          production_capacity: row.production_capacity?.trim() || undefined,
+          supplies_branches: suppliesBranchIds,
+          certifications: certifications as any,
+          status: (row.status?.trim().toLowerCase() as BCK['status']) || 'active',
+        });
+
+        success++;
+      } catch {
+        failed++;
+      }
     }
 
-    return result;
+    if (failed === 0) {
+      toast.success(`${success} BCKs imported successfully`);
+    } else {
+      toast.warning(`${success} of ${success + failed} BCKs imported. ${failed} failed.`);
+    }
+
+    await loadData();
+    return { success, failed };
   };
 
   return (
@@ -403,7 +475,7 @@ export default function BCKsPage() {
               </TableRow>
             ) : (
               paginatedBCKs.map((bck) => {
-                const region = getRegionById(bck.region_id);
+                const region = regions.find((r) => r.id === bck.region_id);
                 const manager = bck.manager_id ? getUserById(bck.manager_id) : null;
 
                 return (

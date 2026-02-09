@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarPlus, Search, MoreVertical, List, CalendarDays, Pencil, X, Play } from 'lucide-react';
+import { CalendarPlus, Search, MoreVertical, List, CalendarDays, Pencil, X, Play, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,18 +39,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QuickScheduleModal } from '@/components/audits/QuickScheduleModal';
 import { AssignAuditorModal } from '@/components/audits/AssignAuditorModal';
 import { AuditCalendar } from '@/components/audits/AuditCalendar';
-import { 
-  Audit, 
-  getAuditsForUser, 
-  updateOverdueAudits,
-  cancelAudit,
-  getEntityName,
-  getTemplateName,
-} from '@/lib/auditStorage';
+import type { Audit } from '@/lib/auditStorage';
 import { getUserById, getUsersByRole } from '@/lib/entityStorage';
+import { fetchTemplates } from '@/lib/templateSupabase';
+import { fetchAudits, updateAudit, deleteAudit } from '@/lib/auditSupabase';
+import { QUERY_KEYS, invalidateAudits } from '@/lib/queryConfig';
 
 const ITEMS_PER_PAGE = 25;
 
@@ -86,11 +83,31 @@ export default function AuditsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isAuditor = user?.role === 'auditor';
-  const isRegionalManager = user?.role === 'regional_manager';
+  const canManageAudits = !!user && ['super_admin', 'audit_manager'].includes(user.role);
 
-  const [audits, setAudits] = useState<Audit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: templates = [] } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+  });
+
+  const templatesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of templates) map.set(t.id, t.name);
+    return map;
+  }, [templates]);
+
+  const getTemplateName = (templateId: string): string => {
+    return templatesById.get(templateId) || 'Unknown Template';
+  };
+
+  const { data: allAudits = [], isLoading } = useQuery({
+    queryKey: QUERY_KEYS.audits,
+    queryFn: fetchAudits,
+    staleTime: 1 * 60 * 1000,
+  });
+
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [calendarDate, setCalendarDate] = useState(new Date());
 
@@ -107,26 +124,32 @@ export default function AuditsPage() {
   const [selectedAudit, setSelectedAudit] = useState<Audit | null>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [auditToCancel, setAuditToCancel] = useState<Audit | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [auditToDelete, setAuditToDelete] = useState<Audit | null>(null);
 
   const auditors = getUsersByRole('auditor');
 
-  const loadAudits = () => {
-    if (!user) return;
-    
-    setLoading(true);
-    setTimeout(() => {
-      // Update overdue audits first
-      updateOverdueAudits();
-      // Load audits based on user role
-      const userAudits = getAuditsForUser(user.id, user.role);
-      setAudits(userAudits);
-      setLoading(false);
-    }, 300);
-  };
+  const cancelMutation = useMutation({
+    mutationFn: async (audit: Audit) => {
+      await updateAudit(audit.id, { status: 'cancelled' });
+    },
+    onSuccess: async () => {
+      await invalidateAudits(queryClient);
+    },
+  });
 
-  useEffect(() => {
-    loadAudits();
-  }, [user]);
+  const deleteMutation = useMutation({
+    mutationFn: async (audit: Audit) => {
+      // Safety: allow delete only for scheduled/cancelled
+      if (!['scheduled', 'cancelled'].includes(audit.status)) {
+        throw new Error('Only scheduled or cancelled audits can be deleted.');
+      }
+      await deleteAudit(audit.id);
+    },
+    onSuccess: async () => {
+      await invalidateAudits(queryClient);
+    },
+  });
 
   // Get auditor name
   const getAuditorName = (auditorId?: string): string => {
@@ -135,9 +158,26 @@ export default function AuditsPage() {
     return auditor?.full_name || 'Unknown';
   };
 
+  const visibleAudits = useMemo(() => {
+    if (!user) return [] as Audit[];
+    if (user.role === 'auditor') return allAudits.filter(a => a.auditor_id === user.id);
+
+    if (user.role === 'regional_manager') {
+      // For now, keep same as before: show all audits. (Region scoping can be added once entity-region mapping is in query layer.)
+      return allAudits;
+    }
+
+    return allAudits;
+  }, [allAudits, user]);
+
+  const getEntityNameSafe = (entityType: string, entityId: string): string => {
+    // Fallback until the audits list is joined to entities.
+    return `${entityType.toUpperCase()} ${entityId.slice(0, 8)}`;
+  };
+
   // Filter audits
-  const filteredAudits = audits.filter(audit => {
-    const entityName = getEntityName(audit.entity_type, audit.entity_id);
+  const filteredAudits = visibleAudits.filter(audit => {
+    const entityName = getEntityNameSafe(audit.entity_type, audit.entity_id);
     const matchesSearch = 
       audit.audit_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       entityName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -164,19 +204,56 @@ export default function AuditsPage() {
     setCancelDialogOpen(true);
   };
 
+  const handleDelete = (audit: Audit) => {
+    if (!canManageAudits) return;
+    setAuditToDelete(audit);
+    setDeleteDialogOpen(true);
+  };
+
   const confirmCancel = () => {
     if (!auditToCancel) return;
-    
-    cancelAudit(auditToCancel.id);
-    
-    toast({
-      title: 'Audit Cancelled',
-      description: `Audit ${auditToCancel.audit_code} has been cancelled.`,
+
+    cancelMutation.mutate(auditToCancel, {
+      onSuccess: () => {
+        toast({
+          title: 'Audit Cancelled',
+          description: `Audit ${auditToCancel.audit_code} has been cancelled.`,
+        });
+      },
+      onError: (e: any) => {
+        toast({
+          title: 'Error',
+          description: e?.message || 'Failed to cancel audit.',
+          variant: 'destructive',
+        });
+      },
     });
     
     setCancelDialogOpen(false);
     setAuditToCancel(null);
-    loadAudits();
+  };
+
+  const confirmDelete = () => {
+    if (!auditToDelete) return;
+
+    deleteMutation.mutate(auditToDelete, {
+      onSuccess: () => {
+        toast({
+          title: 'Deleted',
+          description: `Audit ${auditToDelete.audit_code} deleted successfully.`,
+        });
+      },
+      onError: (e: any) => {
+        toast({
+          title: 'Cannot Delete',
+          description: e?.message || 'Failed to delete audit.',
+          variant: 'destructive',
+        });
+      },
+    });
+
+    setDeleteDialogOpen(false);
+    setAuditToDelete(null);
   };
 
   const pageTitle = isAuditor ? 'My Audits' : 'Audits';
@@ -304,7 +381,7 @@ export default function AuditsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
+                {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
                       {Array.from({ length: 8 }).map((_, j) => (
@@ -318,7 +395,7 @@ export default function AuditsPage() {
                   <TableRow>
                     <TableCell colSpan={8} className="h-24 text-center">
                       <p className="text-muted-foreground">
-                        {audits.length === 0 
+                        {allAudits.length === 0 
                           ? 'No audits yet. Create an audit plan or schedule a one-time audit.'
                           : 'No audits match your filters.'}
                       </p>
@@ -340,7 +417,7 @@ export default function AuditsPage() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p>{getEntityName(audit.entity_type, audit.entity_id)}</p>
+                            <p>{getEntityNameSafe(audit.entity_type, audit.entity_id)}</p>
                             <Badge variant="secondary" className={ENTITY_TYPE_COLORS[audit.entity_type]}>
                               {audit.entity_type.charAt(0).toUpperCase() + audit.entity_type.slice(1)}
                             </Badge>
@@ -401,6 +478,19 @@ export default function AuditsPage() {
                                   Cancel Audit
                                 </DropdownMenuItem>
                               )}
+
+                              {canManageAudits && (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(audit);
+                                  }}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete Audit
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -454,15 +544,37 @@ export default function AuditsPage() {
       <QuickScheduleModal
         open={quickScheduleOpen}
         onOpenChange={setQuickScheduleOpen}
-        onSuccess={loadAudits}
+        onSuccess={() => {
+          void invalidateAudits(queryClient);
+        }}
       />
 
       <AssignAuditorModal
         open={assignAuditorOpen}
         onOpenChange={setAssignAuditorOpen}
         audit={selectedAudit}
-        onSuccess={loadAudits}
+        onSuccess={() => {
+          void invalidateAudits(queryClient);
+        }}
       />
+
+      {/* Delete Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this audit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. Only scheduled or cancelled audits can be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Cancel Dialog */}
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>

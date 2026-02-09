@@ -16,14 +16,17 @@ import { RegionalManagerDashboard } from '@/components/dashboard/RegionalManager
 import { BranchManagerDashboard } from '@/components/dashboard/BranchManagerDashboard';
 import { BCKManagerDashboard } from '@/components/dashboard/BCKManagerDashboard';
 import {
-  getKPIData,
-  getCriticalAlerts,
-  getHeatmapData,
-  getActiveAuditFeed,
-  getCAPAOverview,
-  getIncidentSummary,
-  getAuditorWorkload,
-} from '@/lib/dashboardStats';
+  calculateKPIData,
+  calculateCriticalAlerts,
+  calculateHeatmapData,
+  calculateActiveAuditFeed,
+  calculateCAPAOverview,
+  calculateIncidentSummary,
+  calculateAuditorWorkload,
+} from '@/lib/dashboardStatsSupabase';
+import { useAudits, useCAPAs, useFindings, useIncidents, useBranches, useBCKs, useSuppliers, useRegions } from '@/hooks/useDashboardData';
+import { getUsersByRole } from '@/lib/entityStorage';
+import { getEntityName } from '@/lib/auditStorage';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -56,8 +59,7 @@ export default function Dashboard() {
       return <Navigate to="/audits" replace />;
     
     case 'staff':
-      // Staff are redirected to their task list (CAPA)
-      return <Navigate to="/capa" replace />;
+      return <StaffDashboardView />;
     
     default:
       // Fallback placeholder for any other roles
@@ -91,14 +93,51 @@ interface AuditManagerDashboardViewProps {
 }
 
 function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttention }: AuditManagerDashboardViewProps) {
-  // Memoize data fetching to avoid unnecessary recalculations
-  const kpiData = useMemo(() => getKPIData(), []);
-  const criticalAlerts = useMemo(() => getCriticalAlerts(), []);
-  const heatmapData = useMemo(() => getHeatmapData(), []);
-  const activeAudits = useMemo(() => getActiveAuditFeed(filterNeedsAttention), [filterNeedsAttention]);
-  const capaOverview = useMemo(() => getCAPAOverview(), []);
-  const incidentSummary = useMemo(() => getIncidentSummary(), []);
-  const auditorWorkload = useMemo(() => getAuditorWorkload(), []);
+  // Fetch data using React Query hooks
+  const { data: audits = [] } = useAudits();
+  const { data: capas = [] } = useCAPAs();
+  const { data: findings = [] } = useFindings();
+  const { data: incidents = [] } = useIncidents();
+  const { data: branches = [] } = useBranches();
+  const { data: bcks = [] } = useBCKs();
+  const { data: suppliers = [] } = useSuppliers();
+  const { data: regions = [] } = useRegions();
+
+  // Calculate dashboard data from fetched entities
+  const kpiData = useMemo(() => 
+    calculateKPIData(audits, capas, findings, branches, bcks, suppliers),
+    [audits, capas, findings, branches, bcks, suppliers]
+  );
+
+  const criticalAlerts = useMemo(() => 
+    calculateCriticalAlerts(audits, findings, capas, incidents, suppliers, getEntityName),
+    [audits, findings, capas, incidents, suppliers]
+  );
+
+  const heatmapData = useMemo(() => 
+    calculateHeatmapData(regions, branches, bcks),
+    [regions, branches, bcks]
+  );
+
+  const activeAudits = useMemo(() => 
+    calculateActiveAuditFeed(audits, filterNeedsAttention, getEntityName),
+    [audits, filterNeedsAttention]
+  );
+
+  const capaOverview = useMemo(() => 
+    calculateCAPAOverview(capas, getEntityName),
+    [capas]
+  );
+
+  const incidentSummary = useMemo(() => 
+    calculateIncidentSummary(incidents, getEntityName),
+    [incidents]
+  );
+
+  const auditorWorkload = useMemo(() => {
+    const auditors = getUsersByRole('auditor');
+    return calculateAuditorWorkload(audits, auditors);
+  }, [audits]);
 
   return (
     <div className="space-y-6">
@@ -134,6 +173,37 @@ function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttenti
 
       {/* Band 5: Auditor Workload */}
       <AuditorWorkloadTable auditors={auditorWorkload} />
+    </div>
+  );
+}
+
+function StaffDashboardView() {
+  const { user } = useAuth();
+
+  if (!user) return null;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Welcome, {user.full_name}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-3">
+          <span className="text-muted-foreground">Your role:</span>
+          <RoleBadge role={user.role} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Next actions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="text-muted-foreground">
+            Use the left menu to open your tasks and assigned CAPAs.
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

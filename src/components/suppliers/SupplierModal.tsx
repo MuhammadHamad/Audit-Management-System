@@ -23,13 +23,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Supplier, Branch, BCK, SupplierType, SupplierStatus, RiskLevel } from '@/types';
-import {
-  createSupplier,
-  updateSupplier,
-  getSupplierByCode,
-  getBranches,
-  getBCKs,
-} from '@/lib/entityStorage';
+import { getBranches, getBCKs } from '@/lib/userStorage';
+import { createSupplier, updateSupplier, fetchSupplierByCode } from '@/lib/entitySupabase';
 
 const certificationSchema = z.object({
   name: z.string().min(1, 'Certification name is required'),
@@ -177,7 +172,7 @@ export function SupplierModal({ open, onOpenChange, onSuccess, supplier }: Suppl
 
     try {
       if (!isEditing) {
-        const existingSupplier = getSupplierByCode(data.supplier_code);
+        const existingSupplier = await fetchSupplierByCode(data.supplier_code);
         if (existingSupplier) {
           toast.error('A supplier with this code already exists');
           setIsLoading(false);
@@ -196,7 +191,7 @@ export function SupplierModal({ open, onOpenChange, onSuccess, supplier }: Suppl
       };
 
       if (isEditing && supplier) {
-        updateSupplier(supplier.id, {
+        await updateSupplier(supplier.id, {
           name: data.name,
           type: data.type,
           category: data.category || undefined,
@@ -215,7 +210,7 @@ export function SupplierModal({ open, onOpenChange, onSuccess, supplier }: Suppl
         });
         toast.success(`Supplier ${data.name} updated successfully`);
       } else {
-        createSupplier({
+        await createSupplier({
           supplier_code: data.supplier_code,
           name: data.name,
           type: data.type,

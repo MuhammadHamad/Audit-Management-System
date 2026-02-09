@@ -31,12 +31,12 @@ import {
 } from 'lucide-react';
 import { format, subDays, startOfMonth, subMonths } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import { fetchTemplates } from '@/lib/templateSupabase';
 import { 
   ReportType, 
   FileFormat, 
   ReportConfig,
   generateReport,
-  quickExportAudits,
   quickExportOpenCAPA,
   quickExportHealthScores,
   getLastReportMeta,
@@ -146,7 +146,10 @@ export default function ReportsPage() {
       // Simulate some processing time for UX
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      generateReport(config, user.id, user.role);
+      const templates = await fetchTemplates();
+      const templateNameById: Record<string, string> = {};
+      for (const t of templates) templateNameById[t.id] = t.name;
+      generateReport(config, user.id, user.role, { templateNameById });
       
       const selectedType = reportTypes.find(t => t.value === reportType);
       toast({
@@ -168,7 +171,22 @@ export default function ReportsPage() {
   const handleQuickExport = (type: 'audits' | 'capa' | 'health') => {
     try {
       if (type === 'audits') {
-        quickExportAudits(user.id, user.role);
+        void (async () => {
+          const templates = await fetchTemplates();
+          const templateNameById: Record<string, string> = {};
+          for (const t of templates) templateNameById[t.id] = t.name;
+          generateReport(
+            {
+              reportType: 'audit_summary',
+              dateRange: { from: subDays(new Date(), 90), to: new Date() },
+              includeEvidence: false,
+              fileFormat: 'csv',
+            },
+            user.id,
+            user.role,
+            { templateNameById }
+          );
+        })();
         toast({ title: "Export complete", description: "Audits CSV has been downloaded." });
       } else if (type === 'capa') {
         quickExportOpenCAPA(user.id, user.role);
@@ -499,15 +517,20 @@ export default function ReportsPage() {
               size="sm"
               onClick={() => {
                 if (lastReport.config) {
-                  const config: ReportConfig = {
-                    ...lastReport.config,
-                    dateRange: {
-                      from: new Date(lastReport.config.dateRange.from),
-                      to: new Date(lastReport.config.dateRange.to),
-                    },
-                  };
-                  generateReport(config, user.id, user.role);
-                  toast({ title: "Report regenerated", description: lastReport.filename });
+                  void (async () => {
+                    const config: ReportConfig = {
+                      ...lastReport.config,
+                      dateRange: {
+                        from: new Date(lastReport.config.dateRange.from),
+                        to: new Date(lastReport.config.dateRange.to),
+                      },
+                    };
+                    const templates = await fetchTemplates();
+                    const templateNameById: Record<string, string> = {};
+                    for (const t of templates) templateNameById[t.id] = t.name;
+                    generateReport(config, user.id, user.role, { templateNameById });
+                    toast({ title: "Report regenerated", description: lastReport.filename });
+                  })();
                 }
               }}
             >

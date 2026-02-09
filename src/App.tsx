@@ -41,7 +41,19 @@ const ProfilePage = lazy(() => import("@/pages/Profile"));
 const NotificationsPage = lazy(() => import("@/pages/Notifications"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 3 * 60 * 1000,          // Data stays fresh for 3 minutes (more aggressive)
+      gcTime: 10 * 60 * 1000,            // Cache kept for 10 minutes
+      refetchOnWindowFocus: true,        // Refetch when tab regains focus (with throttle)
+      refetchOnReconnect: 'always',      // Refetch when network reconnects
+      refetchOnMount: true,              // Refetch stale data on component mount
+      retry: 1,                          // Retry failed requests once
+      refetchInterval: false,            // No automatic polling (use manual invalidation)
+    },
+  },
+});
 
 // Component to run batch health score check on app load
 function HealthScoreBatchCheck() {

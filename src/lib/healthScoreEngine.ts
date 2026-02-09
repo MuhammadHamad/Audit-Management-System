@@ -13,9 +13,9 @@ import {
   getBranches,
   getBCKs,
   getSuppliers,
-  updateBranch,
-  updateBCK,
-  updateSupplier,
+  updateBranchSync,
+  updateBCKSync,
+  updateSupplierSync,
   getUsersByRole,
 } from './entityStorage';
 
@@ -374,11 +374,11 @@ export const recalculateAndSaveHealthScore = (
 
   // Update cached score on entity
   if (entityType === 'branch') {
-    updateBranch(entityId, { health_score: result.score });
+    updateBranchSync(entityId, { health_score: result.score });
   } else if (entityType === 'bck') {
-    updateBCK(entityId, { health_score: result.score });
+    updateBCKSync(entityId, { health_score: result.score });
   } else if (entityType === 'supplier') {
-    updateSupplier(entityId, { quality_score: result.score });
+    updateSupplierSync(entityId, { quality_score: result.score });
     
     // Auto-suspension check for suppliers
     checkSupplierAutoSuspension(entityId, result.score);
@@ -397,7 +397,7 @@ const checkSupplierAutoSuspension = (supplierId: string, score: number): void =>
   if (!supplier || supplier.status === 'suspended') return;
 
   // Auto-suspend
-  updateSupplier(supplierId, { status: 'suspended' });
+  updateSupplierSync(supplierId, { status: 'suspended' });
 
   // Notify Audit Manager
   const auditManagers = getUsersByRole('audit_manager');

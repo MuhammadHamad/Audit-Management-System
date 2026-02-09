@@ -35,9 +35,7 @@ import {
   getUsers,
 } from '@/lib/entityStorage';
 import { getAssignmentsForUser } from '@/lib/userStorage';
-import { getAudits } from '@/lib/auditStorage';
-import { getCAPAs } from '@/lib/auditExecutionStorage';
-import { getIncidents } from '@/lib/incidentStorage';
+import { useAudits, useCAPAs, useIncidents } from '@/hooks/useDashboardData';
 import { formatDistanceToNow } from 'date-fns';
 
 interface RegionalManagerDashboardProps {
@@ -89,13 +87,16 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
     return Math.round(sum / allEntities.length);
   }, [allEntities]);
 
+  // Fetch data using React Query
+  const { data: audits = [] } = useAudits();
+  const { data: capas = [] } = useCAPAs();
+  const { data: incidents = [] } = useIncidents();
+
   // KPI calculations
   const kpiData = useMemo(() => {
     if (!regionData) return null;
     
     const entityIds = allEntities.map(e => e.id);
-    const audits = getAudits();
-    const capas = getCAPAs();
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -129,16 +130,13 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
       openCAPA,
       auditsThisMonth,
     };
-  }, [regionData, allEntities]);
+  }, [regionData, allEntities, audits, capas]);
 
   // Action items
   const actionItems = useMemo(() => {
     if (!regionData) return [];
     
     const entityIds = allEntities.map(e => e.id);
-    const audits = getAudits();
-    const capas = getCAPAs();
-    const incidents = getIncidents();
     const today = new Date().toISOString().split('T')[0];
     const items: Array<{
       id: string;
@@ -225,14 +223,14 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
     // Sort by priority
     const priorityOrder = { critical: 0, high: 1, medium: 2 };
     return items.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]).slice(0, 10);
-  }, [regionData, allEntities]);
+  }, [regionData, allEntities, audits, capas, incidents]);
 
   // Recent audits
   const recentAudits = useMemo(() => {
     if (!regionData) return [];
     
     const entityIds = allEntities.map(e => e.id);
-    const audits = getAudits()
+    const regionAudits = audits
       .filter(a => entityIds.includes(a.entity_id))
       .sort((a, b) => {
         const dateA = a.completed_at || a.scheduled_date;
@@ -241,7 +239,7 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
       })
       .slice(0, 10);
 
-    return audits.map(audit => {
+    return regionAudits.map(audit => {
       const entity = allEntities.find(e => e.id === audit.entity_id);
       const auditor = audit.auditor_id ? getUserById(audit.auditor_id) : null;
       return {
@@ -252,22 +250,22 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
         relativeDate: formatDistanceToNow(new Date(audit.completed_at || audit.scheduled_date), { addSuffix: true }),
       };
     });
-  }, [regionData, allEntities]);
+  }, [regionData, allEntities, audits]);
 
   // Open incidents
   const openIncidents = useMemo(() => {
     if (!regionData) return [];
     
     const entityIds = allEntities.map(e => e.id);
-    const incidents = getIncidents()
-      .filter(i => 
+    const regionIncidents = incidents
+      .filter(i =>
         entityIds.includes(i.entity_id) &&
         ['open', 'under_investigation'].includes(i.status)
       )
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 8);
 
-    return incidents.map(incident => {
+    return regionIncidents.map(incident => {
       const entity = allEntities.find(e => e.id === incident.entity_id);
       return {
         ...incident,
@@ -275,7 +273,7 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
         relativeDate: formatDistanceToNow(new Date(incident.created_at), { addSuffix: true }),
       };
     });
-  }, [regionData, allEntities]);
+  }, [regionData, allEntities, incidents]);
 
   // Branch managers in this region
   const branchManagerTeam = useMemo(() => {
@@ -283,9 +281,6 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
     
     const users = getUsers();
     const branchManagers = users.filter(u => u.role === 'branch_manager' && u.status === 'active');
-    const audits = getAudits();
-    const capas = getCAPAs();
-    const today = new Date().toISOString().split('T')[0];
 
     return branchManagers.map(manager => {
       // Find branches managed by this user in this region
@@ -317,7 +312,7 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
       openCAPA: number;
       lastAuditDate: string;
     }>;
-  }, [regionData, branches]);
+  }, [regionData, branches, audits, capas]);
 
   // Error state: No region assigned
   if (!regionData) {
@@ -454,9 +449,9 @@ export function RegionalManagerDashboard({ user }: RegionalManagerDashboardProps
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {filteredEntities.map(entity => {
-                    const entityAudits = getAudits().filter(a => a.entity_id === entity.id && a.status === 'approved');
-                    const entityCapas = getCAPAs().filter(c => c.entity_id === entity.id && ['open', 'in_progress', 'escalated'].includes(c.status));
-                    const entityIncidents = getIncidents().filter(i => i.entity_id === entity.id && ['open', 'under_investigation'].includes(i.status));
+                    const entityAudits = audits.filter(a => a.entity_id === entity.id && a.status === 'approved');
+                    const entityCapas = capas.filter(c => c.entity_id === entity.id && ['open', 'in_progress', 'escalated'].includes(c.status));
+                    const entityIncidents = incidents.filter(i => i.entity_id === entity.id && ['open', 'under_investigation'].includes(i.status));
                     const last90DaysAudits = entityAudits.filter(a => {
                       const date = new Date(a.completed_at || a.scheduled_date);
                       const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);

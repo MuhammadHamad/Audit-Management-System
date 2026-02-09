@@ -39,19 +39,18 @@ import { EntityStatusBadge } from '@/components/entities/EntityStatusBadge';
 import { HealthScoreIndicator } from '@/components/entities/HealthScoreIndicator';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { BranchModal } from '@/components/branches/BranchModal';
-import { Branch, Region } from '@/types';
+import { Branch } from '@/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getUserById, getUserByEmail } from '@/lib/userStorage';
 import {
-  getBranches,
-  getRegions,
-  deleteBranch,
+  fetchBranches,
+  fetchRegions,
+  fetchBranchByCode,
+  fetchRegionByCode,
+  createBranch,
   updateBranch,
-  getBranchByCode,
-  getRegionById,
-  getRegionByCode,
-  getUserById,
-  getUserByEmail,
-  importBranches,
-} from '@/lib/entityStorage';
+  deleteBranch,
+} from '@/lib/entitySupabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
@@ -69,9 +68,17 @@ export default function BranchesPage() {
   const { user } = useAuth();
   const canEdit = user?.role === 'super_admin';
 
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: branches = [], isLoading: isBranchesLoading } = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+  });
+  const { data: regions = [], isLoading: isRegionsLoading } = useQuery({
+    queryKey: ['regions'],
+    queryFn: fetchRegions,
+  });
+
+  const isLoading = isBranchesLoading || isRegionsLoading;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
@@ -83,18 +90,12 @@ export default function BranchesPage() {
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [deletingBranch, setDeletingBranch] = useState<Branch | null>(null);
 
-  const loadData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setBranches(getBranches());
-      setRegions(getRegions());
-      setIsLoading(false);
-    }, 300);
+  const loadData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['branches'] }),
+      queryClient.invalidateQueries({ queryKey: ['regions'] }),
+    ]);
   };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   // Filter branches
   const filteredBranches = useMemo(() => {
@@ -123,22 +124,32 @@ export default function BranchesPage() {
     setCurrentPage(1);
   }, [search, statusFilter, regionFilter]);
 
-  const handleToggleStatus = (branch: Branch) => {
+  const handleToggleStatus = async (branch: Branch) => {
     const newStatus = branch.status === 'active' ? 'inactive' : 'active';
-    updateBranch(branch.id, { status: newStatus });
-    toast.success(`Branch ${branch.name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
-    loadData();
+    try {
+      await updateBranch(branch.id, { status: newStatus });
+      toast.success(`Branch ${branch.name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
+      await loadData();
+    } catch {
+      toast.error('Failed to update branch status');
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingBranch) return;
 
-    const result = deleteBranch(deletingBranch.id);
-    if (result.success) {
+    if (deletingBranch.last_audit_date) {
+      toast.error('Cannot delete. This branch has audit history. Deactivate it instead.');
+      setDeletingBranch(null);
+      return;
+    }
+
+    try {
+      await deleteBranch(deletingBranch.id);
       toast.success(`Branch ${deletingBranch.name} deleted successfully`);
-      loadData();
-    } else {
-      toast.error(result.error);
+      await loadData();
+    } catch {
+      toast.error('Failed to delete branch');
     }
     setDeletingBranch(null);
   };
@@ -181,7 +192,7 @@ export default function BranchesPage() {
     } else {
       const code = row.code.trim().toUpperCase();
       // Check existing branches
-      if (getBranchByCode(code)) {
+      if (branches.some((b) => b.code.toUpperCase() === code)) {
         errors.push({ row: rowNum, message: `Code '${code}' already exists in the system`, field: 'code' });
       }
       // Check duplicates within CSV
@@ -208,7 +219,7 @@ export default function BranchesPage() {
     // Required: region_code
     if (!row.region_code?.trim()) {
       errors.push({ row: rowNum, message: 'Region code is required', field: 'region_code' });
-    } else if (!getRegionByCode(row.region_code.trim())) {
+    } else if (!regions.some((r) => r.code.toUpperCase() === row.region_code.trim().toUpperCase())) {
       errors.push({ row: rowNum, message: `Region '${row.region_code}' does not exist`, field: 'region_code' });
     }
 
@@ -249,29 +260,68 @@ export default function BranchesPage() {
     return errors;
   };
 
-  const handleImport = (data: Record<string, string>[]) => {
-    const result = importBranches(
-      data.map((row) => ({
-        code: row.code?.trim(),
-        name: row.name?.trim(),
-        region_code: row.region_code?.trim(),
-        city: row.city?.trim(),
-        address: row.address?.trim(),
-        manager_email: row.manager_email?.trim(),
-        phone: row.phone?.trim(),
-        email: row.email?.trim(),
-        status: row.status?.trim().toLowerCase(),
-        opening_date: row.opening_date?.trim(),
-      }))
-    );
+  const handleImport = async (data: Record<string, string>[]) => {
+    let success = 0;
+    let failed = 0;
 
-    if (result.failed === 0) {
-      toast.success(`${result.success} branches imported successfully`);
-    } else {
-      toast.warning(`${result.success} of ${result.success + result.failed} branches imported. ${result.failed} failed.`);
+    for (const row of data) {
+      try {
+        const code = (row.code || '').trim();
+        const regionCode = (row.region_code || '').trim();
+        const city = (row.city || '').trim();
+        const name = (row.name || '').trim();
+
+        if (!code || !regionCode || !city || !name) {
+          failed++;
+          continue;
+        }
+
+        const existing = await fetchBranchByCode(code);
+        if (existing) {
+          failed++;
+          continue;
+        }
+
+        const region = await fetchRegionByCode(regionCode);
+        if (!region) {
+          failed++;
+          continue;
+        }
+
+        let managerId: string | undefined;
+        if (row.manager_email?.trim()) {
+          const manager = getUserByEmail(row.manager_email.trim());
+          if (manager?.role === 'branch_manager') {
+            managerId = manager.id;
+          }
+        }
+
+        await createBranch({
+          code,
+          name,
+          region_id: region.id,
+          city,
+          address: row.address?.trim() || undefined,
+          manager_id: managerId,
+          phone: row.phone?.trim() || undefined,
+          email: row.email?.trim() || undefined,
+          status: (row.status?.trim().toLowerCase() as Branch['status']) || 'active',
+          opening_date: row.opening_date?.trim() || undefined,
+        });
+        success++;
+      } catch {
+        failed++;
+      }
     }
 
-    return result;
+    if (failed === 0) {
+      toast.success(`${success} branches imported successfully`);
+    } else {
+      toast.warning(`${success} of ${success + failed} branches imported. ${failed} failed.`);
+    }
+
+    await loadData();
+    return { success, failed };
   };
 
   return (
@@ -374,7 +424,7 @@ export default function BranchesPage() {
               </TableRow>
             ) : (
               paginatedBranches.map((branch) => {
-                const region = getRegionById(branch.region_id);
+                const region = regions.find((r) => r.id === branch.region_id);
                 const manager = branch.manager_id ? getUserById(branch.manager_id) : null;
 
                 return (

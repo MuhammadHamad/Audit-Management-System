@@ -18,7 +18,8 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByRole } from '@/lib/entityStorage';
-import { Audit, updateAudit } from '@/lib/auditStorage';
+import type { Audit } from '@/lib/auditStorage';
+import { updateAudit } from '@/lib/auditSupabase';
 
 interface AssignAuditorModalProps {
   open: boolean;
@@ -32,11 +33,11 @@ export function AssignAuditorModal({ open, onOpenChange, audit, onSuccess }: Ass
   const [auditorId, setAuditorId] = useState<string>('');
   const auditors = getUsersByRole('auditor');
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!audit) return;
 
-    updateAudit(audit.id, { 
-      auditor_id: auditorId === '__none__' ? undefined : auditorId 
+    await updateAudit(audit.id, {
+      auditor_id: auditorId === '__none__' ? undefined : auditorId,
     });
 
     toast({

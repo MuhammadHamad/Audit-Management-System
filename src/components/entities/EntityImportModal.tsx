@@ -31,7 +31,7 @@ interface EntityImportModalProps {
   templateContent: string;
   columns: { key: string; label: string }[];
   validateRow: (row: Record<string, string>, rowIndex: number) => ValidationError[];
-  importData: (data: Record<string, string>[]) => { success: number; failed: number };
+  importData: (data: Record<string, string>[]) => Promise<{ success: number; failed: number }> | { success: number; failed: number };
 }
 
 export function EntityImportModal({
@@ -149,7 +149,7 @@ export function EntityImportModal({
     setIsImporting(true);
 
     try {
-      const result = importData(parsedData);
+      const result = await importData(parsedData);
       handleClose();
       onSuccess();
       return result;

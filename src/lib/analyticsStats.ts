@@ -4,7 +4,7 @@
  */
 
 import { getAudits } from './auditStorage';
-import { getBranches, getUserById } from './entityStorage';
+import { getBranches, getRegions } from './entityStorage';
 import { getUsers } from './userStorage';
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, eachMonthOfInterval, getMonth, getYear } from 'date-fns';
 
@@ -315,10 +315,6 @@ export const getBranchRankings = (
 ): BranchRanking[] => {
   const audits = getAudits();
   const branches = getBranches();
-  const regions = getBranches(); // We'll get region info from branch
-  
-  // Import regions properly
-  const { getRegions } = require('./entityStorage');
   const allRegions = getRegions();
   
   // Filter approved branch audits with scores

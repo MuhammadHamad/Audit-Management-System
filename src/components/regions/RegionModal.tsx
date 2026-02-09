@@ -23,12 +23,12 @@ import {
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Region, User } from '@/types';
+import { getUsers } from '@/lib/userStorage';
 import {
   createRegion,
   updateRegion,
-  getRegionByCode,
-  getUsersByRole,
-} from '@/lib/entityStorage';
+  fetchRegionByCode,
+} from '@/lib/entitySupabase';
 
 const regionSchema = z.object({
   name: z.string().min(1, 'Region name is required'),
@@ -73,7 +73,10 @@ export function RegionModal({ open, onOpenChange, onSuccess, region }: RegionMod
   });
 
   useEffect(() => {
-    setManagers(getUsersByRole('regional_manager'));
+    const eligibleManagers = getUsers().filter(
+      (u) => u.role === 'regional_manager' && u.status === 'active'
+    );
+    setManagers(eligibleManagers);
   }, [open]);
 
   useEffect(() => {
@@ -103,9 +106,9 @@ export function RegionModal({ open, onOpenChange, onSuccess, region }: RegionMod
     setIsLoading(true);
 
     try {
-      // Check for duplicate code (only for new regions or if code changed)
-      if (!isEditing || data.code !== region?.code) {
-        const existingRegion = getRegionByCode(data.code);
+      // Check for duplicate code (for creation only; editing cannot change code)
+      if (!isEditing) {
+        const existingRegion = await fetchRegionByCode(data.code);
         if (existingRegion) {
           toast.error('A region with this code already exists');
           setIsLoading(false);
@@ -114,20 +117,18 @@ export function RegionModal({ open, onOpenChange, onSuccess, region }: RegionMod
       }
 
       if (isEditing && region) {
-        updateRegion(region.id, {
+        await updateRegion(region.id, {
           name: data.name,
-          code: data.code,
           description: data.description,
           manager_id: data.manager_id || undefined,
         });
         toast.success(`Region ${data.name} updated successfully`);
       } else {
-        createRegion({
+        await createRegion({
           name: data.name,
           code: data.code,
           description: data.description,
           manager_id: data.manager_id || undefined,
-          status: 'active',
         });
         toast.success(`Region ${data.name} created successfully`);
       }

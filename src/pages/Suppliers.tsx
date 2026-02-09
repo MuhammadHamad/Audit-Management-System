@@ -42,15 +42,16 @@ import { RiskLevelBadge } from '@/components/entities/RiskLevelBadge';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { SupplierModal } from '@/components/suppliers/SupplierModal';
 import { Supplier } from '@/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  getSuppliers,
-  deleteSupplier,
+  fetchSuppliers,
+  fetchSupplierByCode,
+  fetchBCKs,
+  fetchBranches,
+  createSupplier,
   updateSupplier,
-  getSupplierByCode,
-  getBCKByCode,
-  getBranchByCode,
-  importSuppliers,
-} from '@/lib/entityStorage';
+  deleteSupplier,
+} from '@/lib/entitySupabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
@@ -84,8 +85,21 @@ export default function SuppliersPage() {
   const { user } = useAuth();
   const canEdit = user?.role === 'super_admin';
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: suppliers = [], isLoading: isSuppliersLoading } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: fetchSuppliers,
+  });
+  const { data: bcks = [], isLoading: isBCKsLoading } = useQuery({
+    queryKey: ['bcks'],
+    queryFn: fetchBCKs,
+  });
+  const { data: branches = [], isLoading: isBranchesLoading } = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+  });
+
+  const isLoading = isSuppliersLoading || isBCKsLoading || isBranchesLoading;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -99,17 +113,13 @@ export default function SuppliersPage() {
   const [deletingSupplier, setDeletingSupplier] = useState<Supplier | null>(null);
   const [suspendingSupplier, setSuspendingSupplier] = useState<Supplier | null>(null);
 
-  const loadData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setSuppliers(getSuppliers());
-      setIsLoading(false);
-    }, 300);
+  const loadData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] }),
+      queryClient.invalidateQueries({ queryKey: ['bcks'] }),
+      queryClient.invalidateQueries({ queryKey: ['branches'] }),
+    ]);
   };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   // Filter suppliers
   const filteredSuppliers = useMemo(() => {
@@ -139,29 +149,44 @@ export default function SuppliersPage() {
     setCurrentPage(1);
   }, [search, statusFilter, typeFilter, riskFilter]);
 
-  const handleSuspend = () => {
+  const handleSuspend = async () => {
     if (!suspendingSupplier) return;
-    updateSupplier(suspendingSupplier.id, { status: 'suspended' });
-    toast.success(`Supplier ${suspendingSupplier.name} suspended`);
-    setSuspendingSupplier(null);
-    loadData();
+    try {
+      await updateSupplier(suspendingSupplier.id, { status: 'suspended' });
+      toast.success(`Supplier ${suspendingSupplier.name} suspended`);
+      await loadData();
+    } catch {
+      toast.error('Failed to suspend supplier');
+    } finally {
+      setSuspendingSupplier(null);
+    }
   };
 
-  const handleActivate = (supplier: Supplier) => {
-    updateSupplier(supplier.id, { status: 'active' });
-    toast.success(`Supplier ${supplier.name} activated`);
-    loadData();
+  const handleActivate = async (supplier: Supplier) => {
+    try {
+      await updateSupplier(supplier.id, { status: 'active' });
+      toast.success(`Supplier ${supplier.name} activated`);
+      await loadData();
+    } catch {
+      toast.error('Failed to activate supplier');
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingSupplier) return;
 
-    const result = deleteSupplier(deletingSupplier.id);
-    if (result.success) {
+    if (deletingSupplier.last_audit_date) {
+      toast.error('Cannot delete. This supplier has audit history. Deactivate it instead.');
+      setDeletingSupplier(null);
+      return;
+    }
+
+    try {
+      await deleteSupplier(deletingSupplier.id);
       toast.success(`Supplier ${deletingSupplier.name} deleted successfully`);
-      loadData();
-    } else {
-      toast.error(result.error);
+      await loadData();
+    } catch {
+      toast.error('Failed to delete supplier');
     }
     setDeletingSupplier(null);
   };
@@ -212,7 +237,7 @@ export default function SuppliersPage() {
       errors.push({ row: rowNum, message: 'Supplier code is required', field: 'code' });
     } else {
       const upperCode = code.toUpperCase();
-      if (getSupplierByCode(upperCode)) {
+      if (suppliers.some((s) => s.supplier_code.toUpperCase() === upperCode)) {
         errors.push({ row: rowNum, message: `Code '${upperCode}' already exists in the system`, field: 'code' });
       }
       // Check duplicates within CSV
@@ -279,7 +304,7 @@ export default function SuppliersPage() {
     // Optional: supplies_to_bck_codes
     if (row.supplies_to_bck_codes?.trim()) {
       const codes = row.supplies_to_bck_codes.split(',').map(c => c.trim()).filter(Boolean);
-      const invalidCodes = codes.filter(c => !getBCKByCode(c));
+      const invalidCodes = codes.filter(c => !bcks.some((b) => b.code.toUpperCase() === c.toUpperCase()));
       if (invalidCodes.length > 0) {
         errors.push({ row: rowNum, message: `BCK codes not found: ${invalidCodes.join(', ')}`, field: 'supplies_to_bck_codes' });
       }
@@ -288,7 +313,7 @@ export default function SuppliersPage() {
     // Optional: supplies_to_branch_codes
     if (row.supplies_to_branch_codes?.trim()) {
       const codes = row.supplies_to_branch_codes.split(',').map(c => c.trim()).filter(Boolean);
-      const invalidCodes = codes.filter(c => !getBranchByCode(c));
+      const invalidCodes = codes.filter(c => !branches.some((b) => b.code.toUpperCase() === c.toUpperCase()));
       if (invalidCodes.length > 0) {
         errors.push({ row: rowNum, message: `Branch codes not found: ${invalidCodes.join(', ')}`, field: 'supplies_to_branch_codes' });
       }
@@ -311,36 +336,90 @@ export default function SuppliersPage() {
     return errors;
   };
 
-  const handleImport = (data: Record<string, string>[]) => {
-    const result = importSuppliers(
-      data.map((row) => ({
-        supplier_code: (row.code || row.supplier_code)?.trim(),
-        name: row.name?.trim(),
-        type: row.type?.trim().toLowerCase(),
-        category: row.category?.trim(),
-        risk_level: row.risk_level?.trim().toLowerCase(),
-        contact_name: row.contact_name?.trim(),
-        contact_phone: row.contact_phone?.trim(),
-        contact_email: row.contact_email?.trim(),
-        address: row.address?.trim(),
-        city: row.city?.trim(),
-        registration_number: row.registration_number?.trim(),
-        contract_start: row.contract_start?.trim(),
-        contract_end: row.contract_end?.trim(),
-        supplies_to_bck_codes: row.supplies_to_bck_codes?.trim(),
-        supplies_to_branch_codes: row.supplies_to_branch_codes?.trim(),
-        certifications: row.certifications?.trim(),
-        status: row.status?.trim().toLowerCase(),
-      }))
-    );
+  const handleImport = async (data: Record<string, string>[]) => {
+    let success = 0;
+    let failed = 0;
 
-    if (result.failed === 0) {
-      toast.success(`${result.success} suppliers imported successfully`);
-    } else {
-      toast.warning(`${result.success} of ${result.success + result.failed} suppliers imported. ${result.failed} failed.`);
+    const bckCodeToId = new Map(bcks.map((b) => [b.code.toUpperCase(), b.id]));
+    const branchCodeToId = new Map(branches.map((b) => [b.code.toUpperCase(), b.id]));
+
+    for (const row of data) {
+      try {
+        const supplierCode = ((row.code || row.supplier_code) ?? '').trim();
+        const name = (row.name ?? '').trim();
+        const type = (row.type ?? '').trim().toLowerCase() as Supplier['type'];
+        const riskLevel = (row.risk_level ?? '').trim().toLowerCase() as Supplier['risk_level'];
+
+        if (!supplierCode || !name || !type || !riskLevel) {
+          failed++;
+          continue;
+        }
+
+        const existing = await fetchSupplierByCode(supplierCode);
+        if (existing) {
+          failed++;
+          continue;
+        }
+
+        const suppliesToBckIds: string[] = [];
+        if (row.supplies_to_bck_codes?.trim()) {
+          for (const c of row.supplies_to_bck_codes.split(',')) {
+            const trimmed = c.trim();
+            if (!trimmed) continue;
+            const id = bckCodeToId.get(trimmed.toUpperCase());
+            if (id) suppliesToBckIds.push(id);
+          }
+        }
+
+        const suppliesToBranchIds: string[] = [];
+        if (row.supplies_to_branch_codes?.trim()) {
+          for (const c of row.supplies_to_branch_codes.split(',')) {
+            const trimmed = c.trim();
+            if (!trimmed) continue;
+            const id = branchCodeToId.get(trimmed.toUpperCase());
+            if (id) suppliesToBranchIds.push(id);
+          }
+        }
+
+        const certifications = row.certifications?.trim() ? (parseCertifications(row.certifications.trim()) ?? []) : [];
+        if (row.certifications?.trim() && certifications === null) {
+          failed++;
+          continue;
+        }
+
+        await createSupplier({
+          supplier_code: supplierCode,
+          name,
+          type,
+          category: row.category?.trim() || undefined,
+          risk_level: riskLevel,
+          contact_name: row.contact_name?.trim() || '',
+          contact_phone: row.contact_phone?.trim() || undefined,
+          contact_email: row.contact_email?.trim() || undefined,
+          address: row.address?.trim() || undefined,
+          city: row.city?.trim() || undefined,
+          registration_number: row.registration_number?.trim() || undefined,
+          contract_start: row.contract_start?.trim() || undefined,
+          contract_end: row.contract_end?.trim() || undefined,
+          supplies_to: { bcks: suppliesToBckIds, branches: suppliesToBranchIds },
+          certifications: certifications as any,
+          status: (row.status?.trim().toLowerCase() as Supplier['status']) || 'active',
+        });
+
+        success++;
+      } catch {
+        failed++;
+      }
     }
 
-    return result;
+    if (failed === 0) {
+      toast.success(`${success} suppliers imported successfully`);
+    } else {
+      toast.warning(`${success} of ${success + failed} suppliers imported. ${failed} failed.`);
+    }
+
+    await loadData();
+    return { success, failed };
   };
 
   return (

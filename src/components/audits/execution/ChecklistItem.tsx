@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { TemplateItem } from '@/lib/templateStorage';
+import type { TemplateItem } from '@/lib/templateStorage';
 import { AuditItemResponse } from '@/lib/auditExecutionStorage';
 
 interface ItemState {

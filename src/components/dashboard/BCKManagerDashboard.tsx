@@ -30,10 +30,8 @@ import {
   getUserById,
 } from '@/lib/entityStorage';
 import { getAssignmentsForUser } from '@/lib/userStorage';
-import { getAudits } from '@/lib/auditStorage';
-import { getCAPAs } from '@/lib/auditExecutionStorage';
+import { useAudits, useCAPAs, useIncidents } from '@/hooks/useDashboardData';
 import { getHealthScores } from '@/lib/healthScoreEngine';
-import { getIncidents } from '@/lib/incidentStorage';
 import { formatDistanceToNow, format, differenceInDays } from 'date-fns';
 
 interface BCKManagerDashboardProps {
@@ -93,12 +91,13 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
   }, [bckData]);
 
   // KPI calculations
+  const { data: audits = [] } = useAudits();
+  const { data: capas = [] } = useCAPAs();
+  const { data: incidents = [] } = useIncidents();
+
   const kpiData = useMemo(() => {
     if (!bckData) return null;
     
-    const audits = getAudits();
-    const capas = getCAPAs();
-    const incidents = getIncidents();
     const suppliers = getSuppliers();
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -146,7 +145,7 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
       supplierIssues,
       branchesSupplied,
     };
-  }, [bckData]);
+  }, [bckData, audits, capas, incidents]);
 
   // Supplied branches
   const suppliedBranches = useMemo(() => {
@@ -179,7 +178,6 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
     if (!bckData) return [];
     
     const suppliers = getSuppliers();
-    const incidents = getIncidents();
     
     return suppliers
       .filter(s => s.supplies_to?.bcks?.includes(bckData.id))
@@ -196,13 +194,13 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
         };
       })
       .sort((a, b) => a.quality_score - b.quality_score);
-  }, [bckData]);
+  }, [bckData, incidents]);
 
   // Recent audits
   const recentAudits = useMemo(() => {
     if (!bckData) return [];
     
-    const audits = getAudits()
+    const bckAudits = audits
       .filter(a => a.entity_id === bckData.id)
       .sort((a, b) => {
         const dateA = a.completed_at || a.scheduled_date;
@@ -211,7 +209,7 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
       })
       .slice(0, 10);
 
-    return audits.map(audit => {
+    return bckAudits.map(audit => {
       const auditor = audit.auditor_id ? getUserById(audit.auditor_id) : null;
       return {
         ...audit,
@@ -219,7 +217,7 @@ export function BCKManagerDashboard({ user }: BCKManagerDashboardProps) {
         relativeDate: formatDistanceToNow(new Date(audit.completed_at || audit.scheduled_date), { addSuffix: true }),
       };
     });
-  }, [bckData]);
+  }, [bckData, audits]);
 
   // Error state: No BCK assigned
   if (!bckData) {

@@ -22,13 +22,8 @@ import {
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Branch, Region, User, BranchStatus } from '@/types';
-import {
-  createBranch,
-  updateBranch,
-  getBranchByCode,
-  getRegions,
-  getUsersByRole,
-} from '@/lib/entityStorage';
+import { getRegions, getUsersByRole } from '@/lib/userStorage';
+import { createBranch, updateBranch, fetchBranchByCode } from '@/lib/entitySupabase';
 
 const branchSchema = z.object({
   code: z
@@ -129,7 +124,7 @@ export function BranchModal({ open, onOpenChange, onSuccess, branch }: BranchMod
 
     try {
       if (!isEditing) {
-        const existingBranch = getBranchByCode(data.code);
+        const existingBranch = await fetchBranchByCode(data.code);
         if (existingBranch) {
           toast.error('A branch with this code already exists');
           setIsLoading(false);
@@ -138,7 +133,7 @@ export function BranchModal({ open, onOpenChange, onSuccess, branch }: BranchMod
       }
 
       if (isEditing && branch) {
-        updateBranch(branch.id, {
+        await updateBranch(branch.id, {
           name: data.name,
           region_id: data.region_id,
           city: data.city,
@@ -151,7 +146,7 @@ export function BranchModal({ open, onOpenChange, onSuccess, branch }: BranchMod
         });
         toast.success(`Branch ${data.name} updated successfully`);
       } else {
-        createBranch({
+        await createBranch({
           code: data.code,
           name: data.name,
           region_id: data.region_id,

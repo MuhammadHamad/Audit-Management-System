@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarPlus, Search, MoreVertical, Pause, Play, Trash2, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -38,15 +38,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { AuditPlanModal } from '@/components/auditplans/AuditPlanModal';
-import { 
-  AuditPlan, 
-  getAuditPlans, 
-  updateAuditPlan, 
-  deleteAuditPlan,
-  getNextAuditDateForPlan,
-} from '@/lib/auditStorage';
-import { getTemplates } from '@/lib/templateStorage';
+import type { AuditPlan } from '@/lib/auditStorage';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchTemplates } from '@/lib/templateSupabase';
 import { getUserById } from '@/lib/entityStorage';
+import { fetchAuditPlans, updateAuditPlan, deleteAuditPlan } from '@/lib/auditSupabase';
+import { useAudits } from '@/hooks/useDashboardData';
+import { QUERY_KEYS, invalidateAudits } from '@/lib/queryConfig';
 
 const ITEMS_PER_PAGE = 25;
 
@@ -65,8 +63,24 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function AuditPlansPage() {
   const { toast } = useToast();
-  const [plans, setPlans] = useState<AuditPlan[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+  });
+
+  const { data: audits = [] } = useAudits();
+
+  const {
+    data: plans = [],
+    isLoading,
+  } = useQuery({
+    queryKey: QUERY_KEYS.auditPlans,
+    queryFn: fetchAuditPlans,
+    staleTime: 1 * 60 * 1000,
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -79,22 +93,33 @@ export default function AuditPlansPage() {
   const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
   const [planToPause, setPlanToPause] = useState<AuditPlan | null>(null);
 
-  const loadPlans = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setPlans(getAuditPlans());
-      setLoading(false);
-    }, 300);
-  };
+  const pauseMutation = useMutation({
+    mutationFn: async (values: { id: string; status: AuditPlan['status'] }) => {
+      await updateAuditPlan(values.id, { status: values.status });
+    },
+    onSuccess: async () => {
+      await invalidateAudits(queryClient);
+    },
+  });
 
-  useEffect(() => {
-    loadPlans();
-  }, []);
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await deleteAuditPlan(id);
+    },
+    onSuccess: async () => {
+      await invalidateAudits(queryClient);
+    },
+  });
 
   // Get template name
+  const templatesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of templates) map.set(t.id, t.name);
+    return map;
+  }, [templates]);
+
   const getTemplateName = (templateId: string): string => {
-    const template = getTemplates().find(t => t.id === templateId);
-    return template?.name || 'Unknown';
+    return templatesById.get(templateId) || 'Unknown';
   };
 
   // Get user name
@@ -189,7 +214,7 @@ export default function AuditPlansPage() {
     if (!planToPause) return;
     
     const newStatus = planToPause.status === 'paused' ? 'active' : 'paused';
-    updateAuditPlan(planToPause.id, { status: newStatus });
+    pauseMutation.mutate({ id: planToPause.id, status: newStatus });
     
     toast({
       title: 'Success',
@@ -198,14 +223,13 @@ export default function AuditPlansPage() {
     
     setPauseDialogOpen(false);
     setPlanToPause(null);
-    loadPlans();
   };
 
   const handleDelete = (plan: AuditPlan) => {
-    if (plan.status !== 'draft') {
+    if (plan.status === 'active') {
       toast({
         title: 'Cannot Delete',
-        description: 'Cannot delete an active plan. Pause it first, then set to draft.',
+        description: 'Cannot delete an active plan. Pause it first.',
         variant: 'destructive',
       });
       return;
@@ -216,24 +240,33 @@ export default function AuditPlansPage() {
 
   const confirmDelete = () => {
     if (!planToDelete) return;
-    
-    const result = deleteAuditPlan(planToDelete.id);
-    if (result.success) {
-      toast({
-        title: 'Success',
-        description: 'Audit plan deleted successfully.',
-      });
-      loadPlans();
-    } else {
-      toast({
-        title: 'Error',
-        description: result.error,
-        variant: 'destructive',
-      });
-    }
+
+    deleteMutation.mutate(planToDelete.id, {
+      onSuccess: () => {
+        toast({
+          title: 'Success',
+          description: 'Audit plan deleted successfully.',
+        });
+      },
+      onError: (e: any) => {
+        toast({
+          title: 'Error',
+          description: e?.message || 'Failed to delete audit plan.',
+          variant: 'destructive',
+        });
+      },
+    });
     
     setDeleteDialogOpen(false);
     setPlanToDelete(null);
+  };
+
+  const getNextAuditDateForPlan = (planId: string): string | null => {
+    const today = new Date().toISOString().split('T')[0];
+    const next = audits
+      .filter(a => a.plan_id === planId && a.scheduled_date >= today && a.status === 'scheduled')
+      .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+    return next ? next.scheduled_date : null;
   };
 
   const handleCreateNew = () => {
@@ -311,7 +344,7 @@ export default function AuditPlansPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   {Array.from({ length: 9 }).map((_, j) => (
@@ -434,7 +467,9 @@ export default function AuditPlansPage() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         plan={selectedPlan}
-        onSuccess={loadPlans}
+        onSuccess={() => {
+          void invalidateAudits(queryClient);
+        }}
       />
 
       {/* Pause/Resume Dialog */}

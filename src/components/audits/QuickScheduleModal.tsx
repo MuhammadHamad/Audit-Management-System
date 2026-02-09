@@ -25,9 +25,11 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { getTemplates, AuditTemplate } from '@/lib/templateStorage';
+import type { AuditTemplate } from '@/lib/templateStorage';
+import { useQuery } from '@tanstack/react-query';
+import { fetchTemplates } from '@/lib/templateSupabase';
 import { getBranches, getBCKs, getSuppliers, getUsersByRole } from '@/lib/entityStorage';
-import { createAudit } from '@/lib/auditStorage';
+import { createAudit } from '@/lib/auditSupabase';
 import { useAuth } from '@/contexts/AuthContext';
 
 const formSchema = z.object({
@@ -45,6 +47,12 @@ interface QuickScheduleModalProps {
 export function QuickScheduleModal({ open, onOpenChange, onSuccess }: QuickScheduleModalProps) {
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const { data: allTemplates = [] } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+    enabled: open,
+  });
 
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [auditorId, setAuditorId] = useState<string>('');
@@ -65,7 +73,7 @@ export function QuickScheduleModal({ open, onOpenChange, onSuccess }: QuickSched
 
   useEffect(() => {
     if (open) {
-      setTemplates(getTemplates().filter(t => t.status === 'active'));
+      setTemplates(allTemplates.filter(t => t.status === 'active'));
       setAuditors(getUsersByRole('auditor'));
       form.reset({
         entity_type: undefined,
@@ -75,7 +83,7 @@ export function QuickScheduleModal({ open, onOpenChange, onSuccess }: QuickSched
       setScheduledDate(undefined);
       setAuditorId('');
     }
-  }, [open, form]);
+  }, [open, form, allTemplates]);
 
   useEffect(() => {
     if (!watchEntityType) {
@@ -108,11 +116,11 @@ export function QuickScheduleModal({ open, onOpenChange, onSuccess }: QuickSched
 
   const isValid = form.formState.isValid && scheduledDate;
 
-  const onSubmit = (data: z.infer<typeof formSchema>) => {
+  const onSubmit = async (data: z.infer<typeof formSchema>) => {
     if (!scheduledDate || !user) return;
 
     try {
-      const audit = createAudit({
+      const audit = await createAudit({
         plan_id: undefined,
         template_id: data.template_id,
         entity_type: data.entity_type,

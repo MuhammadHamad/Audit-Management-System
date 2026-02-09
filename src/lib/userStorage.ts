@@ -1,4 +1,4 @@
-import { User, UserAssignment, Region, Branch, BCK, UserRole } from '@/types';
+import { User, UserAssignment, Region, Branch, BCK, Supplier, UserRole } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 
 // NOTE: This file provides both sync and async functions for data operations
@@ -11,17 +11,59 @@ let cachedAssignments: UserAssignment[] = [];
 let cachedRegions: Region[] = [];
 let cachedBranches: Branch[] = [];
 let cachedBCKs: BCK[] = [];
+let cachedSuppliers: Supplier[] = [];
 let cacheInitialized = false;
+
+export const upsertCachedRegion = (region: Region) => {
+  const idx = cachedRegions.findIndex(r => r.id === region.id);
+  if (idx === -1) cachedRegions = [...cachedRegions, region];
+  else cachedRegions = cachedRegions.map(r => r.id === region.id ? region : r);
+};
+
+export const removeCachedRegion = (id: string) => {
+  cachedRegions = cachedRegions.filter(r => r.id !== id);
+};
+
+export const upsertCachedBranch = (branch: Branch) => {
+  const idx = cachedBranches.findIndex(b => b.id === branch.id);
+  if (idx === -1) cachedBranches = [...cachedBranches, branch];
+  else cachedBranches = cachedBranches.map(b => b.id === branch.id ? branch : b);
+};
+
+export const removeCachedBranch = (id: string) => {
+  cachedBranches = cachedBranches.filter(b => b.id !== id);
+};
+
+export const upsertCachedBCK = (bck: BCK) => {
+  const idx = cachedBCKs.findIndex(b => b.id === bck.id);
+  if (idx === -1) cachedBCKs = [...cachedBCKs, bck];
+  else cachedBCKs = cachedBCKs.map(b => b.id === bck.id ? bck : b);
+};
+
+export const removeCachedBCK = (id: string) => {
+  cachedBCKs = cachedBCKs.filter(b => b.id !== id);
+};
+
+export const upsertCachedSupplier = (supplier: Supplier) => {
+  const idx = cachedSuppliers.findIndex(s => s.id === supplier.id);
+  if (idx === -1) cachedSuppliers = [...cachedSuppliers, supplier];
+  else cachedSuppliers = cachedSuppliers.map(s => s.id === supplier.id ? supplier : s);
+};
+
+export const removeCachedSupplier = (id: string) => {
+  cachedSuppliers = cachedSuppliers.filter(s => s.id !== id);
+};
 
 // Initialize cache from Supabase
 export const initializeCache = async () => {
   try {
-    const [usersRes, assignmentsRes, regionsRes, branchesRes, bcksRes] = await Promise.all([
+    const [usersRes, assignmentsRes, regionsRes, branchesRes, bcksRes, suppliersRes] = await Promise.all([
       supabase.from('users').select('*').order('full_name'),
       supabase.from('user_assignments').select('*'),
       supabase.from('regions').select('*').order('name'),
       supabase.from('branches').select('*').order('name'),
       supabase.from('bcks').select('*').order('name'),
+      supabase.from('suppliers').select('*').order('name'),
     ]);
 
     if (usersRes.data) {
@@ -38,6 +80,9 @@ export const initializeCache = async () => {
     }
     if (bcksRes.data) {
       cachedBCKs = bcksRes.data.map(mapBCK);
+    }
+    if (suppliersRes.data) {
+      cachedSuppliers = suppliersRes.data.map(mapSupplier);
     }
     cacheInitialized = true;
   } catch (error) {
@@ -95,6 +140,30 @@ const mapBranch = (b: any): Branch => ({
   updated_at: b.updated_at || '',
 });
 
+const mapSupplier = (s: any): Supplier => ({
+  id: s.id,
+  supplier_code: s.code,
+  name: s.name,
+  type: s.type as Supplier['type'],
+  category: s.category || undefined,
+  contact_name: s.contact_name || undefined,
+  contact_phone: s.contact_phone || undefined,
+  contact_email: s.contact_email || undefined,
+  address: s.address || undefined,
+  city: s.city || undefined,
+  registration_number: s.registration_number || undefined,
+  certifications: Array.isArray(s.certifications) ? (s.certifications as any[]) : [],
+  contract_start: s.contract_start || undefined,
+  contract_end: s.contract_end || undefined,
+  status: (s.status || 'active') as Supplier['status'],
+  risk_level: (s.risk_level || 'medium') as Supplier['risk_level'],
+  supplies_to: (s.supplies_to as any) || { bcks: [], branches: [] },
+  quality_score: typeof s.quality_score === 'number' ? s.quality_score : Number(s.quality_score ?? 0),
+  last_audit_date: undefined,
+  created_at: s.created_at || '',
+  updated_at: s.updated_at || '',
+});
+
 const mapBCK = (b: any): BCK => ({
   id: b.id,
   code: b.code,
@@ -119,6 +188,10 @@ const mapBCK = (b: any): BCK => ({
 // Users
 export const getUsers = (): User[] => cachedUsers;
 
+export const getUsersByRole = (role: UserRole): User[] => {
+  return cachedUsers.filter(u => u.role === role);
+};
+
 export const getUserById = (id: string): User | undefined => {
   return cachedUsers.find(u => u.id === id);
 };
@@ -141,6 +214,18 @@ export const getRegionById = (id: string): Region | undefined => {
   return cachedRegions.find(r => r.id === id);
 };
 
+export const getRegionByCode = (code: string): Region | undefined => {
+  return cachedRegions.find(r => r.code.toUpperCase() === code.toUpperCase());
+};
+
+export const getBranchCountByRegion = (regionId: string): number => {
+  return cachedBranches.filter(b => b.region_id === regionId).length;
+};
+
+export const getBCKCountByRegion = (regionId: string): number => {
+  return cachedBCKs.filter(b => b.region_id === regionId).length;
+};
+
 // Branches
 export const getBranches = (): Branch[] => cachedBranches;
 
@@ -161,6 +246,17 @@ export const getBCKById = (id: string): BCK | undefined => {
 
 export const getBCKByCode = (code: string): BCK | undefined => {
   return cachedBCKs.find(b => b.code === code);
+};
+
+// Suppliers
+export const getSuppliers = (): Supplier[] => cachedSuppliers;
+
+export const getSupplierById = (id: string): Supplier | undefined => {
+  return cachedSuppliers.find(s => s.id === id);
+};
+
+export const getSupplierByCode = (code: string): Supplier | undefined => {
+  return cachedSuppliers.find(s => s.supplier_code.toUpperCase() === code.toUpperCase());
 };
 
 // ============= ASYNC FUNCTIONS (fetch from Supabase) =============
@@ -237,6 +333,21 @@ export const fetchBCKs = async (): Promise<BCK[]> => {
   
   cachedBCKs = data.map(mapBCK);
   return cachedBCKs;
+};
+
+export const fetchSuppliers = async (): Promise<Supplier[]> => {
+  const { data, error } = await supabase
+    .from('suppliers')
+    .select('*')
+    .order('name');
+
+  if (error) {
+    console.error('Error fetching suppliers:', error);
+    return cachedSuppliers;
+  }
+
+  cachedSuppliers = (data ?? []).map(mapSupplier);
+  return cachedSuppliers;
 };
 
 // ============= MUTATION FUNCTIONS =============

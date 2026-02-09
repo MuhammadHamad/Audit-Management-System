@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, MoreHorizontal, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,25 +37,29 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AuditTemplate, EntityType, TemplateStatus } from '@/lib/templateStorage';
+import { fetchUsers } from '@/lib/userStorage';
 import {
-  getTemplates,
-  duplicateTemplate,
-  archiveTemplate,
   activateTemplate,
+  archiveTemplate,
   deleteTemplate,
-  getTotalItemsCount,
-  AuditTemplate,
-  EntityType,
-  TemplateStatus,
-} from '@/lib/templateStorage';
-import { getUsers } from '@/lib/userStorage';
+  duplicateTemplate,
+  fetchTemplates,
+} from '@/lib/templateSupabase';
 import { User } from '@/types';
 
 export default function TemplatesPage() {
   const navigate = useNavigate();
-  const [templates, setTemplates] = useState<AuditTemplate[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: templates = [], isLoading } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+  });
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: fetchUsers,
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -67,22 +71,58 @@ export default function TemplatesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<AuditTemplate | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      setTemplates(getTemplates());
-      const usersData = await import('@/lib/userStorage').then(m => m.fetchUsers());
-      setUsers(usersData);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setIsLoading(false);
-    }
+  const getTotalItemsCount = (template: AuditTemplate): number => {
+    return template.checklist_json.sections.reduce((acc, section) => acc + section.items.length, 0);
   };
+
+  const invalidateTemplates = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['templates'] });
+  };
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (templateId: string) => duplicateTemplate(templateId),
+    onSuccess: async (duplicated) => {
+      toast.success('Template duplicated. Edit the copy now.');
+      await invalidateTemplates();
+      navigate(`/templates/${duplicated.id}/edit`);
+    },
+    onError: () => {
+      toast.error('Failed to duplicate template.');
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: async (templateId: string) => archiveTemplate(templateId),
+    onSuccess: async () => {
+      toast.success(`${selectedTemplate?.name ?? 'Template'} archived.`);
+      await invalidateTemplates();
+    },
+    onError: () => {
+      toast.error('Failed to archive template.');
+    },
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: async (templateId: string) => activateTemplate(templateId),
+    onSuccess: async (updated) => {
+      toast.success(`${updated.name} is now active.`);
+      await invalidateTemplates();
+    },
+    onError: () => {
+      toast.error('Failed to activate template.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (templateId: string) => deleteTemplate(templateId),
+    onSuccess: async () => {
+      toast.success(`${selectedTemplate?.name ?? 'Template'} deleted.`);
+      await invalidateTemplates();
+    },
+    onError: () => {
+      toast.error('Failed to delete template.');
+    },
+  });
 
   const filteredTemplates = useMemo(() => {
     return templates.filter(template => {
@@ -137,37 +177,18 @@ export default function TemplatesPage() {
   };
 
   const handleDuplicate = (template: AuditTemplate) => {
-    const duplicated = duplicateTemplate(template.id);
-    if (duplicated) {
-      toast.success('Template duplicated. Edit the copy now.');
-      loadData();
-      navigate(`/templates/${duplicated.id}/edit`);
-    } else {
-      toast.error('Failed to duplicate template.');
-    }
+    duplicateMutation.mutate(template.id);
   };
 
   const handleArchive = () => {
     if (!selectedTemplate) return;
-    const result = archiveTemplate(selectedTemplate.id);
-    if (result) {
-      toast.success(`${selectedTemplate.name} archived.`);
-      loadData();
-    } else {
-      toast.error('Failed to archive template.');
-    }
+    archiveMutation.mutate(selectedTemplate.id);
     setArchiveDialogOpen(false);
     setSelectedTemplate(null);
   };
 
   const handleActivate = (template: AuditTemplate) => {
-    const result = activateTemplate(template.id);
-    if (result) {
-      toast.success(`${template.name} is now active.`);
-      loadData();
-    } else {
-      toast.error('Failed to activate template.');
-    }
+    activateMutation.mutate(template.id);
   };
 
   const handleDelete = () => {
@@ -178,13 +199,7 @@ export default function TemplatesPage() {
       setSelectedTemplate(null);
       return;
     }
-    const result = deleteTemplate(selectedTemplate.id);
-    if (result) {
-      toast.success(`${selectedTemplate.name} deleted.`);
-      loadData();
-    } else {
-      toast.error('Failed to delete template.');
-    }
+    deleteMutation.mutate(selectedTemplate.id);
     setDeleteDialogOpen(false);
     setSelectedTemplate(null);
   };

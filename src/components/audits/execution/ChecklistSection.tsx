@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { TemplateSection } from '@/lib/templateStorage';
+import type { TemplateSection } from '@/lib/templateStorage';
 import { AuditItemResponse } from '@/lib/auditExecutionStorage';
 import { ChecklistItem } from './ChecklistItem';
 

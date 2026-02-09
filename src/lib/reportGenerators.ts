@@ -6,7 +6,7 @@
  */
 
 import * as XLSX from 'xlsx';
-import { getAudits, Audit, getEntityName, getTemplateName } from './auditStorage';
+import { getAudits, Audit, getEntityName } from './auditStorage';
 import { getCAPAs, getFindings, Finding, CAPA } from './auditExecutionStorage';
 import { getIncidents, Incident } from './incidentStorage';
 import { 
@@ -198,7 +198,8 @@ interface AuditSummaryRow {
 
 export const generateAuditSummaryReport = (
   config: ReportConfig,
-  scope: UserScope
+  scope: UserScope,
+  templateNameById?: TemplateNameById
 ): { data: AuditSummaryRow[]; kpis: Record<string, number | string> } => {
   const allAudits = getAudits();
   const allFindings = getFindings();
@@ -247,7 +248,7 @@ export const generateAuditSummaryReport = (
       entity_type: audit.entity_type,
       entity_code: entityCode,
       entity_name: entityName,
-      template_name: getTemplateName(audit.template_id),
+      template_name: templateNameById?.[audit.template_id] || 'Unknown Template',
       auditor_name: auditor?.full_name || 'Unassigned',
       scheduled_date: audit.scheduled_date,
       completed_at: audit.completed_at || '',
@@ -801,10 +802,13 @@ export const generateAuditorPerformanceReport = (
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ReportData = any[];
 
+type TemplateNameById = Record<string, string>;
+
 export const generateReport = (
   config: ReportConfig,
   userId: string,
-  userRole: string
+  userRole: string,
+  options?: { templateNameById?: TemplateNameById }
 ): void => {
   const scope = getUserScope(userId, userRole);
   const filename = formatFilename(config.reportType, config.dateRange.from, config.dateRange.to, config.fileFormat);
@@ -814,7 +818,7 @@ export const generateReport = (
   
   switch (config.reportType) {
     case 'audit_summary': {
-      const result = generateAuditSummaryReport(config, scope);
+      const result = generateAuditSummaryReport(config, scope, options?.templateNameById);
       data = result.data;
       kpis = result.kpis;
       break;

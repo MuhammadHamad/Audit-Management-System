@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQuery } from '@tanstack/react-query';
 import { getAuditById, Audit } from '@/lib/auditStorage';
 import { 
   getFindings, 
@@ -63,9 +64,9 @@ import {
   getSuppliers, 
   getUserById 
 } from '@/lib/entityStorage';
-import { getTemplates } from '@/lib/templateStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
+import { fetchTemplateById } from '@/lib/templateSupabase';
 
 interface ChecklistItemDisplay {
   id: string;
@@ -129,6 +130,15 @@ export default function VerificationDetail() {
   const [templateName, setTemplateName] = useState('');
   const [isRecalculating, setIsRecalculating] = useState(false);
 
+  const templateQuery = useQuery({
+    queryKey: ['template', audit?.template_id],
+    queryFn: async () => {
+      if (!audit?.template_id) return null;
+      return fetchTemplateById(audit.template_id);
+    },
+    enabled: !!audit?.template_id,
+  });
+
   useEffect(() => {
     if (id && user) {
       loadData();
@@ -140,7 +150,7 @@ export default function VerificationDetail() {
     try {
       const auditData = getAuditById(id!);
       if (!auditData) {
-        navigate('/audits/pending-verification');
+        navigate('/verification');
         return;
       }
       
@@ -180,44 +190,10 @@ export default function VerificationDetail() {
         setAuditorName(auditor?.full_name || 'Unknown');
       }
       
-      // Load template and build sections
-      const templates = getTemplates();
-      const template = templates.find(t => t.id === auditData.template_id);
-      setTemplateName(template?.name || 'Unknown Template');
-      
-      if (template?.checklist_json) {
-        const results = getAuditResultsByAuditId(auditData.id);
-        const allFindings = getFindings().filter(f => f.audit_id === auditData.id);
-        setFindings(allFindings);
-        
-        const sectionsData: ChecklistSectionDisplay[] = template.checklist_json.sections.map((section: any) => {
-          const items: ChecklistItemDisplay[] = section.items.map((item: any) => {
-            const result = results.find(r => r.item_id === item.id);
-            const finding = allFindings.find(f => f.item_id === item.id);
-            
-            return {
-              id: item.id,
-              text: item.text,
-              response: result?.response,
-              evidence: result?.evidence_urls || [],
-              points: result?.points_earned || 0,
-              maxPoints: item.points,
-              finding
-            };
-          });
-          
-          return {
-            id: section.id,
-            name: section.name,
-            weight: section.weight,
-            items,
-            score: items.reduce((sum, i) => sum + i.points, 0),
-            maxScore: items.reduce((sum, i) => sum + i.maxPoints, 0)
-          };
-        });
-        
-        setSections(sectionsData);
-      }
+      // Template is loaded via React Query; sections will be built in a separate effect.
+      setTemplateName('');
+      setSections([]);
+      setFindings([]);
       
       // Load CAPA and activities
       const auditCapas = getCAPAs().filter(c => c.audit_id === auditData.id);
@@ -242,6 +218,51 @@ export default function VerificationDetail() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!audit) return;
+    const template = templateQuery.data;
+    if (!template) return;
+
+    setTemplateName(template.name || 'Unknown Template');
+
+    if (!template.checklist_json) {
+      setSections([]);
+      return;
+    }
+
+    const results = getAuditResultsByAuditId(audit.id);
+    const allFindings = getFindings().filter(f => f.audit_id === audit.id);
+    setFindings(allFindings);
+
+    const sectionsData: ChecklistSectionDisplay[] = (template.checklist_json.sections as any[]).map((section: any) => {
+      const items: ChecklistItemDisplay[] = (section.items as any[]).map((item: any) => {
+        const result = results.find(r => r.item_id === item.id);
+        const finding = allFindings.find(f => f.item_id === item.id);
+
+        return {
+          id: item.id,
+          text: item.text,
+          response: result?.response,
+          evidence: result?.evidence_urls || [],
+          points: result?.points_earned || 0,
+          maxPoints: item.points,
+          finding,
+        };
+      });
+
+      return {
+        id: section.id,
+        name: section.name,
+        weight: section.weight,
+        items,
+        score: items.reduce((sum, i) => sum + i.points, 0),
+        maxScore: items.reduce((sum, i) => sum + i.maxPoints, 0),
+      };
+    });
+
+    setSections(sectionsData);
+  }, [audit, templateQuery.data]);
 
   const handleApproveCAPA = (capaId: string) => {
     const result = approveCAPA(capaId, user!.id);

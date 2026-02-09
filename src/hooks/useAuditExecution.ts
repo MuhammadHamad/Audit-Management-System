@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Audit, updateAudit, getAuditById } from '@/lib/auditStorage';
-import { 
+import type { 
   AuditTemplate, 
   TemplateSection, 
   TemplateItem, 
-  getTemplateById 
 } from '@/lib/templateStorage';
+import { fetchTemplateById } from '@/lib/templateSupabase';
 import {
   AuditResult,
   AuditItemResponse,
@@ -75,7 +75,7 @@ export function useAuditExecution(auditId: string) {
 
         setAudit(loadedAudit);
 
-        const loadedTemplate = getTemplateById(loadedAudit.template_id);
+        const loadedTemplate = await fetchTemplateById(loadedAudit.template_id);
         if (!loadedTemplate) return;
 
         setTemplate(loadedTemplate);

@@ -28,19 +28,20 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import {
-  getTemplateById,
-  getTemplateByCode,
-  createTemplate,
-  updateTemplate,
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type {
   AuditTemplate,
   TemplateSection,
   TemplateItem,
   EntityType,
   ChecklistJson,
   ScoringConfig,
-  getEstimatedTime,
 } from '@/lib/templateStorage';
+import {
+  createTemplate as createTemplateSupabase,
+  fetchTemplateById,
+  updateTemplate as updateTemplateSupabase,
+} from '@/lib/templateSupabase';
 
 const ITEM_TYPE_OPTIONS = [
   { value: 'pass_fail', label: 'Pass/Fail', icon: CheckCircle },
@@ -82,6 +83,7 @@ export default function TemplateBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const isEditMode = !!id;
+  const queryClient = useQueryClient();
 
   // Form state
   const [name, setName] = useState('');
@@ -102,27 +104,42 @@ export default function TemplateBuilderPage() {
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [draggedItemSectionId, setDraggedItemSectionId] = useState<string | null>(null);
 
+  const templateQuery = useQuery({
+    queryKey: ['template', id],
+    queryFn: async () => {
+      if (!id) return null;
+      return fetchTemplateById(id);
+    },
+    enabled: isEditMode && !!id,
+    placeholderData: () => {
+      if (!id) return null;
+      const cached = queryClient.getQueryData<AuditTemplate[]>(['templates']);
+      return cached?.find(t => t.id === id);
+    },
+  });
+
   // Load template on edit
   useEffect(() => {
-    if (isEditMode && id) {
-      const template = getTemplateById(id);
-      if (template) {
-        setOriginalTemplate(template);
-        setName(template.name);
-        setCode(template.code);
-        setEntityType(template.entity_type);
-        setPassThreshold(template.scoring_config.pass_threshold);
-        setCriticalFailRule(template.scoring_config.critical_fail_rule);
-        setWeightedScoring(template.scoring_config.weighted);
-        setSections(template.checklist_json.sections);
-        // Expand all sections by default on edit
-        setExpandedSections(new Set(template.checklist_json.sections.map(s => s.id)));
-      } else {
-        toast.error('Template not found');
-        navigate('/templates');
-      }
+    if (!isEditMode || !id) return;
+    if (!templateQuery.isSuccess) return;
+
+    const template = templateQuery.data;
+    if (!template) {
+      toast.error('Template not found');
+      navigate('/templates');
+      return;
     }
-  }, [id, isEditMode, navigate]);
+
+    setOriginalTemplate(template);
+    setName(template.name);
+    setCode(template.code);
+    setEntityType(template.entity_type);
+    setPassThreshold(template.scoring_config.pass_threshold);
+    setCriticalFailRule(template.scoring_config.critical_fail_rule);
+    setWeightedScoring(template.scoring_config.weighted);
+    setSections(template.checklist_json.sections);
+    setExpandedSections(new Set(template.checklist_json.sections.map(s => s.id)));
+  }, [id, isEditMode, navigate, templateQuery.data, templateQuery.isSuccess]);
 
   // Track unsaved changes
   useEffect(() => {
@@ -182,15 +199,56 @@ export default function TemplateBuilderPage() {
   };
 
   const validateCode = (): boolean => {
-    if (!code.trim()) return true; // Will be caught by publish validation
-    const existing = getTemplateByCode(code.toUpperCase());
-    if (existing && existing.id !== id) {
-      return false;
-    }
+    if (!code.trim()) return true;
     return true;
   };
 
-  const handleSaveDraft = () => {
+  const friendlyTemplateError = (error: unknown): string => {
+    const anyErr = error as any;
+    const msg = String(anyErr?.message ?? anyErr?.error_description ?? anyErr?.error ?? '');
+    const code = String(anyErr?.code ?? '');
+    if (code === '23505' || msg.toLowerCase().includes('duplicate')) {
+      return 'Template code already exists.';
+    }
+    return 'Something went wrong. Please try again.';
+  };
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: {
+      name: string;
+      code: string;
+      entity_type: EntityType;
+      version: number;
+      status: 'draft' | 'active' | 'archived';
+      checklist_json: ChecklistJson;
+      scoring_config: ScoringConfig;
+      created_by: string | null;
+    }) => createTemplateSupabase(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['templates'] });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      updates: {
+        name?: string;
+        version?: number;
+        status?: 'draft' | 'active' | 'archived';
+        checklist_json?: ChecklistJson;
+        scoring_config?: ScoringConfig;
+      };
+    }) => updateTemplateSupabase(payload.id, payload.updates),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['templates'] });
+      if (id) {
+        await queryClient.invalidateQueries({ queryKey: ['template', id] });
+      }
+    },
+  });
+
+  const handleSaveDraft = async () => {
     if (!name.trim()) {
       toast.error('Please enter a template name.');
       return;
@@ -215,40 +273,39 @@ export default function TemplateBuilderPage() {
       weighted: weightedScoring,
     };
 
-    if (isEditMode && id) {
-      const result = updateTemplate(id, {
-        name,
-        checklist_json: checklistJson,
-        scoring_config: scoringConfig,
-      });
-      if (result) {
+    try {
+      if (isEditMode && id) {
+        const updated = await updateMutation.mutateAsync({
+          id,
+          updates: {
+            name,
+            checklist_json: checklistJson,
+            scoring_config: scoringConfig,
+          },
+        });
         toast.success('Draft saved successfully.');
         setHasUnsavedChanges(false);
-        setOriginalTemplate(result);
+        setOriginalTemplate(updated);
       } else {
-        toast.error('Failed to save draft.');
-      }
-    } else {
-      const result = createTemplate({
-        name,
-        code: code.toUpperCase(),
-        entity_type: entityType as EntityType,
-        version: 1,
-        status: 'draft',
-        checklist_json: checklistJson,
-        scoring_config: scoringConfig,
-        created_by: user?.id || 'unknown',
-      });
-      if (result) {
+        const created = await createMutation.mutateAsync({
+          name,
+          code: code.toUpperCase(),
+          entity_type: entityType as EntityType,
+          version: 1,
+          status: 'draft',
+          checklist_json: checklistJson,
+          scoring_config: scoringConfig,
+          created_by: user?.id ?? null,
+        });
         toast.success('Template saved as draft.');
-        navigate(`/templates/${result.id}/edit`);
-      } else {
-        toast.error('Failed to create template.');
+        navigate(`/templates/${created.id}/edit`);
       }
+    } catch (e) {
+      toast.error(friendlyTemplateError(e));
     }
   };
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
     const error = validateForPublish();
     if (error) {
       toast.error(error);
@@ -266,42 +323,41 @@ export default function TemplateBuilderPage() {
       weighted: weightedScoring,
     };
 
-    if (isEditMode && id) {
-      const newVersion = originalTemplate?.status === 'active' 
-        ? (originalTemplate.version + 1)
-        : originalTemplate?.version || 1;
+    try {
+      if (isEditMode && id) {
+        const newVersion = originalTemplate?.status === 'active'
+          ? (originalTemplate.version + 1)
+          : originalTemplate?.version || 1;
 
-      const result = updateTemplate(id, {
-        name,
-        version: newVersion,
-        status: 'active',
-        checklist_json: checklistJson,
-        scoring_config: scoringConfig,
-      });
-      if (result) {
+        await updateMutation.mutateAsync({
+          id,
+          updates: {
+            name,
+            version: newVersion,
+            status: 'active',
+            checklist_json: checklistJson,
+            scoring_config: scoringConfig,
+          },
+        });
         toast.success('Template published successfully.');
         setHasUnsavedChanges(false);
         navigate('/templates');
       } else {
-        toast.error('Failed to publish template.');
-      }
-    } else {
-      const result = createTemplate({
-        name,
-        code: code.toUpperCase(),
-        entity_type: entityType as EntityType,
-        version: 1,
-        status: 'active',
-        checklist_json: checklistJson,
-        scoring_config: scoringConfig,
-        created_by: user?.id || 'unknown',
-      });
-      if (result) {
+        await createMutation.mutateAsync({
+          name,
+          code: code.toUpperCase(),
+          entity_type: entityType as EntityType,
+          version: 1,
+          status: 'active',
+          checklist_json: checklistJson,
+          scoring_config: scoringConfig,
+          created_by: user?.id ?? null,
+        });
         toast.success('Template published successfully.');
         navigate('/templates');
-      } else {
-        toast.error('Failed to publish template.');
       }
+    } catch (e) {
+      toast.error(friendlyTemplateError(e));
     }
   };
 

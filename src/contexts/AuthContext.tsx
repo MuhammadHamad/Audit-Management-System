@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { User, UserRole, UserStatus, Notification } from '@/types';
 import { initializeCache } from '@/lib/userStorage';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface AuthContextType {
   user: User | null;
@@ -19,6 +20,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,12 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      const roleFromRolesTable = await fetchUserRole(userId);
+
       return {
         id: data.id,
         email: data.email,
         full_name: data.full_name,
         phone: data.phone || undefined,
-        role: data.role as UserRole,
+        role: (roleFromRolesTable ?? (data.role as UserRole)) as UserRole,
         avatar_url: undefined, // Supabase doesn't store avatars in users table by default
         status: (data.status || 'active') as UserStatus,
         created_at: data.created_at || '',
@@ -54,6 +58,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error fetching user profile:', error);
       return null;
     }
+  };
+
+  const fetchUserProfileWithRetry = async (userId: string, attempts = 3): Promise<User | null> => {
+    let lastError: unknown;
+
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const profile = await fetchUserProfile(userId);
+        if (profile) return profile;
+
+        lastError = new Error('Profile not found');
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+
+    console.error('Error fetching user profile after retries:', lastError);
+    return null;
   };
 
   // Fetch user role from user_roles table
@@ -107,84 +133,155 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Track whether initial hydration is complete to avoid loading flash on token refresh
+  const initialLoadDone = useRef(false);
+  const sessionRef = useRef<Session | null>(null);
+
   // Initialize auth state
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
-        setSession(newSession);
-        
-        if (newSession?.user) {
-          // Defer Supabase calls with setTimeout to prevent deadlock
-          setTimeout(async () => {
-            const profile = await fetchUserProfile(newSession.user.id);
-            if (profile) {
-              setUser(profile);
-              loadNotifications(newSession.user.id);
-            } else {
-              // User exists in auth but not in users table - clear session
-              setUser(null);
-            }
-            setIsLoading(false);
-          }, 0);
-        } else {
-          setUser(null);
-          setNotifications([]);
-          setIsLoading(false);
-        }
-      }
-    );
+    let requestId = 0;
+    let isUnmounted = false;
 
-    // THEN check for existing session and initialize cache
-    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
-      setSession(existingSession);
-      
-      if (existingSession?.user) {
-        // Initialize the data cache for sync functions
-        await initializeCache();
-        
-        const profile = await fetchUserProfile(existingSession.user.id);
-        if (profile) {
-          setUser(profile);
-          loadNotifications(existingSession.user.id);
-        }
+    const hydrateFromSession = async (newSession: Session | null) => {
+      const currentRequest = ++requestId;
+
+      sessionRef.current = newSession;
+      setSession(newSession);
+
+      if (!newSession?.user) {
+        setUser(null);
+        setNotifications([]);
         setIsLoading(false);
-      } else {
-        setIsLoading(false);
+        initialLoadDone.current = true;
+        return;
       }
+
+      setIsLoading(true);
+
+      try {
+        await initializeCache();
+      } catch (e) {
+        console.error('Error initializing cache:', e);
+      }
+
+      const profile = await fetchUserProfileWithRetry(newSession.user.id);
+
+      if (isUnmounted || currentRequest !== requestId) return;
+
+      if (!profile) {
+        setUser(null);
+        setNotifications([]);
+        setIsLoading(false);
+        initialLoadDone.current = true;
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (profile.status !== 'active') {
+        setUser(null);
+        setNotifications([]);
+        setIsLoading(false);
+        initialLoadDone.current = true;
+        await supabase.auth.signOut();
+        return;
+      }
+
+      setUser(profile);
+      await loadNotifications(newSession.user.id);
+      setIsLoading(false);
+      initialLoadDone.current = true;
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      setTimeout(() => {
+        const prevUserId = sessionRef.current?.user?.id;
+        const nextUserId = newSession?.user?.id;
+
+        if (import.meta.env.DEV) {
+          console.log('[auth] onAuthStateChange', {
+            event,
+            initialLoadDone: initialLoadDone.current,
+            prevUserId,
+            nextUserId,
+          });
+        }
+
+        if (initialLoadDone.current && prevUserId && nextUserId === prevUserId && event !== 'SIGNED_OUT') {
+          if (import.meta.env.DEV) {
+            console.log('[auth] session-only update');
+          }
+          sessionRef.current = newSession;
+          setSession(newSession);
+          return;
+        }
+
+        if (import.meta.env.DEV) {
+          console.log('[auth] hydrate');
+        }
+        void hydrateFromSession(newSession);
+      }, 0);
     });
 
-    return () => subscription.unsubscribe();
+    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      void hydrateFromSession(existingSession);
+    });
+
+    return () => {
+      isUnmounted = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      setIsLoading(true);
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        setIsLoading(false);
         return { success: false, error: error.message };
       }
 
       if (!data.user) {
+        setIsLoading(false);
         return { success: false, error: 'Login failed' };
       }
 
+      sessionRef.current = data.session;
+      setSession(data.session);
+
+      try {
+        await initializeCache();
+      } catch (e) {
+        console.error('Error initializing cache:', e);
+      }
+
       // Fetch user profile to verify they exist in our users table
-      const profile = await fetchUserProfile(data.user.id);
+      const profile = await fetchUserProfileWithRetry(data.user.id);
       
       if (!profile) {
         // User exists in auth but not in our users table
         await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        setIsLoading(false);
         return { success: false, error: 'User account not found. Please contact an administrator.' };
       }
 
       if (profile.status !== 'active') {
         await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        setIsLoading(false);
         return { success: false, error: 'Account is inactive' };
       }
+
+      setUser(profile);
+      loadNotifications(data.user.id);
 
       // Update last login
       await supabase
@@ -192,9 +289,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .update({ last_login: new Date().toISOString() })
         .eq('id', data.user.id);
 
+      setIsLoading(false);
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
+      setIsLoading(false);
       return { success: false, error: 'An unexpected error occurred' };
     }
   };
@@ -202,8 +301,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
+    sessionRef.current = null;
     setSession(null);
     setNotifications([]);
+    
+    // Clear all React Query cache to prevent data leakage between sessions
+    queryClient.clear();
   };
 
   const markAllAsRead = async () => {

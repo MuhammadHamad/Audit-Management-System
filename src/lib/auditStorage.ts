@@ -1,4 +1,3 @@
-import { getTemplates } from './templateStorage';
 import { getBranches, getBCKs, getSuppliers, getRegions, getUsersByRole } from './entityStorage';
 import { getAssignmentsForUser } from './userStorage';
 
@@ -108,10 +107,10 @@ export const deleteAuditPlan = (id: string): { success: boolean; error?: string 
   const plan = getAuditPlanById(id);
   if (!plan) return { success: false, error: 'Plan not found' };
   
-  if (plan.status !== 'draft') {
+  if (plan.status === 'active') {
     return { 
       success: false, 
-      error: 'Cannot delete an active plan. Pause it first, then set to draft.' 
+      error: 'Cannot delete an active plan. Pause it first.' 
     };
   }
 
@@ -380,10 +379,4 @@ export const getEntityName = (entityType: string, entityId: string): string => {
     return supplier ? supplier.name : 'Unknown Supplier';
   }
   return 'Unknown';
-};
-
-// Get template name helper
-export const getTemplateName = (templateId: string): string => {
-  const template = getTemplates().find(t => t.id === templateId);
-  return template ? template.name : 'Unknown Template';
 };

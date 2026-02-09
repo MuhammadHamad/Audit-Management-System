@@ -29,11 +29,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { getTemplates, AuditTemplate } from '@/lib/templateStorage';
+import type { AuditTemplate } from '@/lib/templateStorage';
+import { useQuery } from '@tanstack/react-query';
+import { fetchTemplates } from '@/lib/templateSupabase';
 import { getBranches, getBCKs, getSuppliers, getUsersByRole } from '@/lib/entityStorage';
-import { AuditPlan, createAuditPlan, updateAuditPlan, generateAuditsFromPlan } from '@/lib/auditStorage';
+import type { AuditPlan } from '@/lib/auditStorage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { createAuditPlanAndGenerateAudits, updateAuditPlan } from '@/lib/auditSupabase';
 
 const formSchema = z.object({
   name: z.string().min(1, 'Plan name is required'),
@@ -64,6 +67,12 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
   const { user } = useAuth();
   const navigate = useNavigate();
   const isEditing = !!plan;
+
+  const { data: allTemplates = [] } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+    enabled: open,
+  });
 
   // Schedule state
   const [scheduleType, setScheduleType] = useState<'one_time' | 'recurring'>('one_time');
@@ -102,7 +111,7 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
   useEffect(() => {
     if (open) {
       // Load templates
-      setTemplates(getTemplates().filter(t => t.status === 'active'));
+      setTemplates(allTemplates.filter(t => t.status === 'active'));
       // Load auditors
       setAuditors(getUsersByRole('auditor'));
 
@@ -162,7 +171,7 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
         setAssignedAuditorId('');
       }
     }
-  }, [open, plan, form]);
+  }, [open, plan, form, allTemplates]);
 
   // Update entities when entity type changes
   useEffect(() => {
@@ -275,7 +284,7 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
     return true;
   };
 
-  const onSubmit = (data: z.infer<typeof formSchema>) => {
+  const onSubmit = async (data: z.infer<typeof formSchema>) => {
     if (!validateForm() || !user) return;
 
     const recurrencePattern = scheduleType === 'one_time'
@@ -312,7 +321,7 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
 
     try {
       if (isEditing && plan) {
-        updateAuditPlan(plan.id, planData);
+        await updateAuditPlan(plan.id, planData);
         toast({
           title: 'Success',
           description: 'Audit plan updated successfully.',
@@ -320,22 +329,20 @@ export function AuditPlanModal({ open, onOpenChange, plan, onSuccess }: AuditPla
         onSuccess();
         onOpenChange(false);
       } else {
-        const newPlan = createAuditPlan(planData);
-        // Generate audits
-        const generatedAudits = generateAuditsFromPlan(newPlan, user.id);
+        const result = await createAuditPlanAndGenerateAudits(planData, { horizonDays: 30 });
         toast({
           title: 'Success',
-          description: `Audit plan created. ${generatedAudits.length} audits scheduled.`,
+          description: `Audit plan created. ${result.generatedAudits} audits scheduled.`,
         });
         onSuccess();
         onOpenChange(false);
         // Navigate to audits page
         navigate('/audits');
       }
-    } catch {
+    } catch (e: any) {
       toast({
         title: 'Error',
-        description: 'Failed to save audit plan.',
+        description: e?.message || 'Failed to save audit plan.',
         variant: 'destructive',
       });
     }

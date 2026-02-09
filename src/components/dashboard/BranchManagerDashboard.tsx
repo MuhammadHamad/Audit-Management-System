@@ -28,10 +28,8 @@ import {
   getUserById,
 } from '@/lib/entityStorage';
 import { getAssignmentsForUser } from '@/lib/userStorage';
-import { getAudits } from '@/lib/auditStorage';
-import { getCAPAs } from '@/lib/auditExecutionStorage';
+import { useAudits, useCAPAs, useIncidents } from '@/hooks/useDashboardData';
 import { getHealthScores } from '@/lib/healthScoreEngine';
-import { getIncidents } from '@/lib/incidentStorage';
 import { formatDistanceToNow, format } from 'date-fns';
 
 interface BranchManagerDashboardProps {
@@ -68,13 +66,14 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
     return branchHealth?.components || null;
   }, [branchData]);
 
+  const { data: audits = [] } = useAudits();
+  const { data: capas = [] } = useCAPAs();
+  const { data: incidents = [] } = useIncidents();
+
   // KPI calculations
   const kpiData = useMemo(() => {
     if (!branchData) return null;
     
-    const audits = getAudits();
-    const capas = getCAPAs();
-    const incidents = getIncidents();
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -111,30 +110,30 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
       openIncidents,
       lastAuditScore,
     };
-  }, [branchData]);
+  }, [branchData, audits, capas, incidents]);
 
   // Recent audits for chart/list
   const auditHistory = useMemo(() => {
     if (!branchData) return [];
     
-    const audits = getAudits()
+    const branchAudits = audits
       .filter(a => a.entity_id === branchData.id && a.status === 'approved' && a.score != null)
       .sort((a, b) => new Date(a.completed_at || a.scheduled_date).getTime() - new Date(b.completed_at || b.scheduled_date).getTime())
       .slice(-6);
 
-    return audits.map(audit => ({
+    return branchAudits.map(audit => ({
       id: audit.id,
       date: format(new Date(audit.completed_at || audit.scheduled_date), 'MMM d'),
       score: audit.score!,
       passFail: audit.pass_fail,
     }));
-  }, [branchData]);
+  }, [branchData, audits]);
 
   // Recent audits table
   const recentAudits = useMemo(() => {
     if (!branchData) return [];
     
-    const audits = getAudits()
+    const branchAudits = audits
       .filter(a => a.entity_id === branchData.id)
       .sort((a, b) => {
         const dateA = a.completed_at || a.scheduled_date;
@@ -143,7 +142,7 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
       })
       .slice(0, 10);
 
-    return audits.map(audit => {
+    return branchAudits.map(audit => {
       const auditor = audit.auditor_id ? getUserById(audit.auditor_id) : null;
       return {
         ...audit,
@@ -151,13 +150,13 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
         relativeDate: formatDistanceToNow(new Date(audit.completed_at || audit.scheduled_date), { addSuffix: true }),
       };
     });
-  }, [branchData]);
+  }, [branchData, audits]);
 
   // Open CAPA list
   const openCAPAList = useMemo(() => {
     if (!branchData) return [];
     
-    const capas = getCAPAs()
+    const branchCapas = capas
       .filter(c => 
         c.entity_id === branchData.id &&
         ['open', 'in_progress', 'escalated', 'pending_verification'].includes(c.status)
@@ -166,12 +165,13 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
       .slice(0, 10);
 
     const today = new Date().toISOString().split('T')[0];
-    
-    return capas.map(capa => ({
-      ...capa,
-      isOverdue: capa.due_date < today && !['closed', 'approved'].includes(capa.status),
+
+    return branchCapas.map(c => ({
+      ...c,
+      daysUntilDue: Math.ceil((new Date(c.due_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      isOverdue: c.due_date < today && !['closed', 'approved'].includes(c.status),
     }));
-  }, [branchData]);
+  }, [branchData, capas]);
 
   // Error state: No branch assigned
   if (!branchData) {

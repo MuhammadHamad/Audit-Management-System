@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { useState, useMemo, useEffect } from 'react';
 import { Upload, Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,16 +38,14 @@ import { EntityStatusBadge } from '@/components/entities/EntityStatusBadge';
 import { EntityImportModal } from '@/components/entities/EntityImportModal';
 import { RegionModal } from '@/components/regions/RegionModal';
 import { Region } from '@/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getBranchCountByRegion, getBCKCountByRegion, getUserById, getUserByEmail } from '@/lib/userStorage';
 import {
-  getRegions,
+  fetchRegions,
+  fetchRegionByCode,
   deleteRegion,
-  getBranchCountByRegion,
-  getBCKCountByRegion,
-  getUserById,
-  getRegionByCode,
-  importRegions,
-  getUserByEmail,
-} from '@/lib/entityStorage';
+  createRegion,
+} from '@/lib/entitySupabase';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 25;
@@ -60,8 +57,11 @@ const statusFilterOptions = [
 ];
 
 export default function RegionsPage() {
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: regions = [], isLoading } = useQuery({
+    queryKey: ['regions'],
+    queryFn: fetchRegions,
+  });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -72,17 +72,9 @@ export default function RegionsPage() {
   const [editingRegion, setEditingRegion] = useState<Region | null>(null);
   const [deletingRegion, setDeletingRegion] = useState<Region | null>(null);
 
-  const loadData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setRegions(getRegions());
-      setIsLoading(false);
-    }, 300);
+  const loadData = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['regions'] });
   };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   // Filter regions
   const filteredRegions = useMemo(() => {
@@ -110,15 +102,15 @@ export default function RegionsPage() {
     setCurrentPage(1);
   }, [search, statusFilter]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingRegion) return;
 
-    const result = deleteRegion(deletingRegion.id);
-    if (result.success) {
+    try {
+      await deleteRegion(deletingRegion.id);
       toast.success(`Region ${deletingRegion.name} deleted successfully`);
-      loadData();
-    } else {
-      toast.error(result.error);
+      await loadData();
+    } catch {
+      toast.error('Failed to delete region');
     }
     setDeletingRegion(null);
   };
@@ -151,8 +143,6 @@ export default function RegionsPage() {
       errors.push({ row: rowNum, message: 'Code is required', field: 'code' });
     } else if (row.code.length > 5) {
       errors.push({ row: rowNum, message: 'Code must be 5 characters or less', field: 'code' });
-    } else if (getRegionByCode(row.code)) {
-      errors.push({ row: rowNum, message: `Code '${row.code}' already exists`, field: 'code' });
     }
 
     if (row.manager_email?.trim()) {
@@ -167,23 +157,52 @@ export default function RegionsPage() {
     return errors;
   };
 
-  const handleImport = (data: Record<string, string>[]) => {
-    const result = importRegions(
-      data.map((row) => ({
-        name: row.name,
-        code: row.code,
-        description: row.description,
-        manager_email: row.manager_email,
-      }))
-    );
+  const handleImport = async (data: Record<string, string>[]) => {
+    let success = 0;
+    let failed = 0;
 
-    if (result.failed === 0) {
-      toast.success(`${result.success} regions imported successfully`);
-    } else {
-      toast.warning(`${result.success} of ${result.success + result.failed} regions imported. ${result.failed} failed.`);
+    for (const row of data) {
+      try {
+        const code = (row.code || '').trim();
+        if (!code) {
+          failed++;
+          continue;
+        }
+
+        const existing = await fetchRegionByCode(code);
+        if (existing) {
+          failed++;
+          continue;
+        }
+
+        let managerId: string | undefined;
+        if (row.manager_email?.trim()) {
+          const manager = getUserByEmail(row.manager_email.trim());
+          if (manager?.role === 'regional_manager') {
+            managerId = manager.id;
+          }
+        }
+
+        await createRegion({
+          name: row.name,
+          code,
+          description: row.description || undefined,
+          manager_id: managerId,
+        });
+        success++;
+      } catch {
+        failed++;
+      }
     }
 
-    return result;
+    if (failed === 0) {
+      toast.success(`${success} regions imported successfully`);
+    } else {
+      toast.warning(`${success} of ${success + failed} regions imported. ${failed} failed.`);
+    }
+
+    await loadData();
+    return { success, failed };
   };
 
   return (

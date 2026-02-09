@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -52,9 +53,9 @@ import {
 } from '@/lib/incidentStorage';
 import { getBranches, getBCKs, getSuppliers, getUserById } from '@/lib/entityStorage';
 import { getAuditById } from '@/lib/auditStorage';
-import { getTemplates } from '@/lib/templateStorage';
 import { getUsers } from '@/lib/entityStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
+import { fetchTemplates } from '@/lib/templateSupabase';
 
 const severityColors: Record<IncidentSeverity, string> = {
   critical: 'bg-destructive text-destructive-foreground',
@@ -88,6 +89,11 @@ export default function IncidentDetailPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ['templates'],
+    queryFn: fetchTemplates,
+  });
 
   const [incident, setIncident] = useState<Incident | null>(null);
   const [activities, setActivities] = useState<IncidentActivity[]>([]);
@@ -127,6 +133,13 @@ export default function IncidentDetailPage() {
   useEffect(() => {
     loadData();
   }, [id]);
+
+  useEffect(() => {
+    const activeSupplierTemplates = templates.filter(
+      (t) => t.entity_type === 'supplier' && t.status === 'active'
+    );
+    setAvailableTemplates(activeSupplierTemplates.map((t) => ({ id: t.id, name: t.name })));
+  }, [templates]);
 
   const loadData = () => {
     if (!id) return;
@@ -170,8 +183,8 @@ export default function IncidentDetailPage() {
     }
 
     // Load templates for trigger audit modal
-    const templates = getTemplates().filter(t => t.entity_type === 'supplier' && t.status === 'active');
-    setAvailableTemplates(templates.map(t => ({ id: t.id, name: t.name })));
+    const activeSupplierTemplates = templates.filter(t => t.entity_type === 'supplier' && t.status === 'active');
+    setAvailableTemplates(activeSupplierTemplates.map(t => ({ id: t.id, name: t.name })));
 
     // Load auditors
     const auditors = getUsers().filter(u => u.role === 'auditor' && u.status === 'active');

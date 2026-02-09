@@ -23,14 +23,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { BCK, Region, User, Branch, BCKStatus } from '@/types';
-import {
-  createBCK,
-  updateBCK,
-  getBCKByCode,
-  getRegions,
-  getBranches,
-  getUsersByRole,
-} from '@/lib/entityStorage';
+import { getRegions, getBranches, getUsersByRole } from '@/lib/userStorage';
+import { createBCK, updateBCK, fetchBCKByCode } from '@/lib/entitySupabase';
 
 const certificationSchema = z.object({
   name: z.string().min(1, 'Certification name is required'),
@@ -164,7 +158,7 @@ export function BCKModal({ open, onOpenChange, onSuccess, bck }: BCKModalProps) 
 
     try {
       if (!isEditing) {
-        const existingBCK = getBCKByCode(data.code);
+        const existingBCK = await fetchBCKByCode(data.code);
         if (existingBCK) {
           toast.error('A BCK with this code already exists');
           setIsLoading(false);
@@ -178,7 +172,7 @@ export function BCKModal({ open, onOpenChange, onSuccess, bck }: BCKModalProps) 
         .map(cert => ({ name: cert.name!, expiry_date: cert.expiry_date! }));
 
       if (isEditing && bck) {
-        updateBCK(bck.id, {
+        await updateBCK(bck.id, {
           name: data.name,
           region_id: data.region_id,
           city: data.city,
@@ -193,7 +187,7 @@ export function BCKModal({ open, onOpenChange, onSuccess, bck }: BCKModalProps) 
         });
         toast.success(`BCK ${data.name} updated successfully`);
       } else {
-        createBCK({
+        await createBCK({
           code: data.code,
           name: data.name,
           region_id: data.region_id,
