@@ -27,6 +27,7 @@ import {
 import { useAudits, useCAPAs, useFindings, useIncidents, useBranches, useBCKs, useSuppliers, useRegions } from '@/hooks/useDashboardData';
 import { getUsersByRole } from '@/lib/entityStorage';
 import { getEntityName } from '@/lib/auditStorage';
+import { AuditorDashboard } from '@/components/dashboard/AuditorDashboard';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -55,8 +56,7 @@ export default function Dashboard() {
       return <BCKManagerDashboard user={user} />;
     
     case 'auditor':
-      // Auditors are redirected to their audit list
-      return <Navigate to="/audits" replace />;
+      return <AuditorDashboard user={user} />;
     
     case 'staff':
       return <StaffDashboardView />;

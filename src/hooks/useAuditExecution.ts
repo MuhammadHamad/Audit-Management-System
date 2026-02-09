@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Audit, updateAudit, getAuditById } from '@/lib/auditStorage';
+import { useQueryClient } from '@tanstack/react-query';
+import type { Audit } from '@/lib/auditStorage';
 import type { 
   AuditTemplate, 
   TemplateSection, 
@@ -9,27 +10,27 @@ import { fetchTemplateById } from '@/lib/templateSupabase';
 import {
   AuditResult,
   AuditItemResponse,
-  Finding,
-  CAPA,
   FindingSeverity,
-  getAuditResultsByAuditId,
-  saveAuditResult,
-  saveBulkAuditResults,
-  createFinding,
-  createCAPA,
-  createNotification,
   getAssigneeForCAPA,
   calculateDueDate,
-  getFindingsByAuditId,
-  getCAPAsByAuditId,
 } from '@/lib/auditExecutionStorage';
-import { getEntityName } from '@/lib/auditStorage';
-import { getUsersByRole } from '@/lib/entityStorage';
+import { fetchAuditById, updateAudit } from '@/lib/auditSupabase';
+import { 
+  createSignedAuditEvidenceUrl,
+  fetchAuditResults,
+  fetchCAPAsByAuditId,
+  fetchFindingsByAuditId,
+  insertCAPAs,
+  insertFindings,
+  upsertAuditResults,
+  uploadAuditEvidenceFile,
+} from '@/lib/executionSupabase';
 
 interface ItemState {
   response: AuditItemResponse | null;
   evidenceFiles: File[];
   evidenceUrls: string[];
+  evidencePaths: string[];
   manualFinding: string;
 }
 
@@ -56,21 +57,24 @@ interface ValidationResult {
 }
 
 export function useAuditExecution(auditId: string) {
+  const queryClient = useQueryClient();
   const [audit, setAudit] = useState<Audit | null>(null);
   const [template, setTemplate] = useState<AuditTemplate | null>(null);
   const [itemStates, setItemStates] = useState<Map<string, ItemState>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submittedFindings, setSubmittedFindings] = useState<Finding[]>([]);
-  const [submittedCAPAs, setSubmittedCAPAs] = useState<CAPA[]>([]);
+  const [submittedFindings, setSubmittedFindings] = useState<any[]>([]);
+  const [submittedCAPAs, setSubmittedCAPAs] = useState<any[]>([]);
 
   // Load audit, template, and existing results
   useEffect(() => {
     const loadAudit = async () => {
       setIsLoading(true);
       try {
-        const loadedAudit = getAuditById(auditId);
+        if (!auditId) return;
+
+        const loadedAudit = await fetchAuditById(auditId);
         if (!loadedAudit) return;
 
         setAudit(loadedAudit);
@@ -81,41 +85,38 @@ export function useAuditExecution(auditId: string) {
         setTemplate(loadedTemplate);
 
         // Load existing results
-        const existingResults = getAuditResultsByAuditId(auditId);
+        const existingResults = await fetchAuditResults(auditId);
         const statesMap = new Map<string, ItemState>();
 
         // Initialize all items
         for (const section of loadedTemplate.checklist_json.sections) {
           for (const item of section.items) {
             const existingResult = existingResults.find(r => r.item_id === item.id);
+            const evidencePaths = existingResult?.evidence_urls || [];
+            const evidenceUrls = await Promise.all(
+              evidencePaths.map((p) => createSignedAuditEvidenceUrl(p))
+            );
             statesMap.set(item.id, {
               response: existingResult?.response || null,
               evidenceFiles: [],
-              evidenceUrls: existingResult?.evidence_urls || [],
+              evidenceUrls,
+              evidencePaths,
               manualFinding: '',
             });
           }
         }
         setItemStates(statesMap);
 
-        // If audit is completed, load findings and CAPAs
+        // If audit is completed, findings/CAPA are not loaded here yet.
         if (['submitted', 'approved', 'rejected', 'pending_verification'].includes(loadedAudit.status)) {
-          setSubmittedFindings(getFindingsByAuditId(auditId));
-          setSubmittedCAPAs(getCAPAsByAuditId(auditId));
+          const [dbFindings, dbCapas] = await Promise.all([
+            fetchFindingsByAuditId(loadedAudit.id),
+            fetchCAPAsByAuditId(loadedAudit.id),
+          ]);
+          setSubmittedFindings(dbFindings);
+          setSubmittedCAPAs(dbCapas);
         }
 
-        // Start the audit if it's still scheduled
-        if (loadedAudit.status === 'scheduled') {
-          updateAudit(auditId, {
-            status: 'in_progress',
-            started_at: new Date().toISOString(),
-          });
-          setAudit(prev => prev ? {
-            ...prev,
-            status: 'in_progress',
-            started_at: new Date().toISOString(),
-          } : null);
-        }
       } finally {
         setIsLoading(false);
       }
@@ -123,6 +124,26 @@ export function useAuditExecution(auditId: string) {
 
     loadAudit();
   }, [auditId]);
+
+  const markAuditInProgressIfNeeded = useCallback(() => {
+    if (!auditId) return;
+    if (!audit) return;
+    if (audit.status !== 'scheduled') return;
+
+    const startedAt = audit.started_at ?? new Date().toISOString();
+
+    setAudit(prev => prev ? {
+      ...prev,
+      status: 'in_progress',
+      started_at: startedAt,
+    } : null);
+
+    void updateAudit(auditId, {
+      status: 'in_progress',
+      started_at: startedAt,
+    });
+    void queryClient.invalidateQueries({ queryKey: ['audits'] });
+  }, [audit, auditId, queryClient]);
 
   // Update item response
   const updateItemResponse = useCallback((itemId: string, response: AuditItemResponse) => {
@@ -132,12 +153,17 @@ export function useAuditExecution(auditId: string) {
         response: null,
         evidenceFiles: [],
         evidenceUrls: [],
+        evidencePaths: [],
         manualFinding: '',
       };
       newMap.set(itemId, { ...current, response });
       return newMap;
     });
-  }, []);
+
+    if (response?.value !== null) {
+      markAuditInProgressIfNeeded();
+    }
+  }, [markAuditInProgressIfNeeded]);
 
   // Add evidence file
   const addEvidenceFile = useCallback((itemId: string, file: File) => {
@@ -147,6 +173,7 @@ export function useAuditExecution(auditId: string) {
         response: null,
         evidenceFiles: [],
         evidenceUrls: [],
+        evidencePaths: [],
         manualFinding: '',
       };
       newMap.set(itemId, {
@@ -182,6 +209,7 @@ export function useAuditExecution(auditId: string) {
       newMap.set(itemId, {
         ...current,
         evidenceUrls: current.evidenceUrls.filter((_, i) => i !== urlIndex),
+        evidencePaths: current.evidencePaths.filter((_, i) => i !== urlIndex),
       });
       return newMap;
     });
@@ -195,12 +223,42 @@ export function useAuditExecution(auditId: string) {
         response: null,
         evidenceFiles: [],
         evidenceUrls: [],
+        evidencePaths: [],
         manualFinding: '',
       };
       newMap.set(itemId, { ...current, manualFinding: note });
       return newMap;
     });
   }, []);
+
+  const flushEvidenceUploads = useCallback(async (auditIdForPaths: string, templateForItems: AuditTemplate) => {
+    const nextMap = new Map(itemStates);
+
+    for (const section of templateForItems.checklist_json.sections) {
+      for (const item of section.items) {
+        const current = nextMap.get(item.id);
+        if (!current) continue;
+        if (current.evidenceFiles.length === 0) continue;
+
+        const uploaded = await Promise.all(
+          current.evidenceFiles.map((file) => uploadAuditEvidenceFile(auditIdForPaths, item.id, file))
+        );
+
+        const newPaths = uploaded.map(u => u.path);
+        const newSignedUrls = uploaded.map(u => u.signedUrl);
+
+        nextMap.set(item.id, {
+          ...current,
+          evidenceFiles: [],
+          evidencePaths: [...current.evidencePaths, ...newPaths],
+          evidenceUrls: [...current.evidenceUrls, ...newSignedUrls],
+        });
+      }
+    }
+
+    setItemStates(nextMap);
+    return nextMap;
+  }, [itemStates]);
 
   // Calculate points for an item
   const calculateItemPoints = useCallback((
@@ -436,31 +494,51 @@ export function useAuditExecution(auditId: string) {
     return 'medium';
   }, []);
 
+  const isFailedForFinding = useCallback((item: TemplateItem, response: AuditItemResponse | null): boolean => {
+    if (!response) return false;
+    const value = response.value;
+
+    if (item.type === 'pass_fail') return value === 'fail';
+    if (item.type === 'rating' && typeof value === 'number') return value <= 2;
+
+    if (item.type === 'checklist' && typeof value === 'object' && value !== null) {
+      return Object.values(value as Record<string, boolean>).some(v => !v);
+    }
+
+    return false;
+  }, []);
+
+  const generateFindingCode = useCallback((): string => {
+    const y = new Date().getFullYear();
+    return `FND-${y}-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+  }, []);
+
   // Save draft
   const saveDraft = useCallback(async () => {
     if (!template || !audit) return;
 
     setIsSaving(true);
     try {
+      const statesMap = await flushEvidenceUploads(audit.id, template);
       const results: Omit<AuditResult, 'id' | 'created_at' | 'updated_at'>[] = [];
 
       for (const section of template.checklist_json.sections) {
         for (const item of section.items) {
-          const state = itemStates.get(item.id);
+          const state = statesMap.get(item.id);
           if (state?.response) {
             results.push({
               audit_id: audit.id,
               section_id: section.id,
               item_id: item.id,
               response: state.response,
-              evidence_urls: state.evidenceUrls,
+              evidence_urls: state.evidencePaths,
               points_earned: calculateItemPoints(item, state),
             });
           }
         }
       }
 
-      saveBulkAuditResults(results);
+      await upsertAuditResults(results);
     } finally {
       setIsSaving(false);
     }
@@ -492,160 +570,141 @@ export function useAuditExecution(auditId: string) {
     try {
       const { sections } = template.checklist_json;
 
+      const statesMap = await flushEvidenceUploads(audit.id, template);
+
       // Step 1 & 2: Save all results
       const results: Omit<AuditResult, 'id' | 'created_at' | 'updated_at'>[] = [];
 
       for (const section of sections) {
         for (const item of section.items) {
-          const state = itemStates.get(item.id);
+          const state = statesMap.get(item.id);
           if (state?.response) {
             results.push({
               audit_id: audit.id,
               section_id: section.id,
               item_id: item.id,
               response: state.response,
-              evidence_urls: state.evidenceUrls, // In real app, upload files here
+              evidence_urls: state.evidencePaths,
               points_earned: calculateItemPoints(item, state),
             });
           }
         }
       }
 
-      saveBulkAuditResults(results);
+      await upsertAuditResults(results);
 
-      // Step 4: Generate findings
-      const findings: Finding[] = [];
-      
-      for (const section of sections) {
-        for (const item of section.items) {
-          const state = itemStates.get(item.id);
-          if (!state?.response) continue;
-          
-          const value = state.response.value;
-          let shouldCreateFinding = false;
-          let description = `Non-conformance detected: ${item.text}`;
-          
-          if (item.type === 'pass_fail' && value === 'fail') {
-            shouldCreateFinding = true;
-          } else if (item.type === 'rating' && typeof value === 'number' && value <= 2) {
-            shouldCreateFinding = true;
-            description = `Low rating (${value}/5): ${item.text}`;
-          } else if (item.type === 'checklist' && item.critical && typeof value === 'object' && value !== null) {
-            const hasUnchecked = Object.values(value as Record<string, boolean>).some(v => !v);
-            if (hasUnchecked) {
-              shouldCreateFinding = true;
-              description = `Incomplete critical checklist: ${item.text}`;
-            }
-          }
-
-          // Add manual finding note if present
-          if (state.manualFinding && state.manualFinding.trim() !== '') {
-            description += ` Additional notes: ${state.manualFinding}`;
-            if (!shouldCreateFinding) {
-              // Manual finding without auto-trigger
-              shouldCreateFinding = true;
-            }
-          }
-
-          if (shouldCreateFinding) {
-            const severity = item.type === 'rating' && typeof value === 'number' && value === 2 
-              ? 'low' 
-              : determineSeverity(item, section);
-            
-            const finding = createFinding({
-              audit_id: audit.id,
-              item_id: item.id,
-              section_name: section.name,
-              category: item.type,
-              severity,
-              description,
-              evidence_urls: state.evidenceUrls,
-              status: 'open',
-            });
-            findings.push(finding);
-          }
-        }
-      }
-
-      // Step 5: Create CAPAs
-      const capas: CAPA[] = [];
-      const entityName = getEntityName(audit.entity_type, audit.entity_id);
-      
-      for (const finding of findings) {
-        const assignee = getAssigneeForCAPA(audit.entity_type, audit.entity_id);
-        const dueDate = calculateDueDate(finding.severity);
-        
-        const capa = createCAPA({
-          finding_id: finding.id,
-          audit_id: audit.id,
-          entity_type: audit.entity_type,
-          entity_id: audit.entity_id,
-          description: finding.description,
-          assigned_to: assignee || '',
-          due_date: dueDate,
-          status: 'open',
-          priority: finding.severity,
-          evidence_urls: [],
-          sub_tasks: [],
-        });
-        capas.push(capa);
-
-        // Step 6: Create notification for assignee
-        if (assignee) {
-          createNotification({
-            user_id: assignee,
-            type: 'capa_assigned',
-            title: 'New CAPA Assigned',
-            message: `New CAPA assigned to you: ${capa.capa_code} for ${entityName}. Due: ${dueDate}`,
-            link_to: `/capa/${capa.id}`,
-            read: false,
-          });
-        }
-
-        // Notify audit manager for critical findings
-        if (finding.severity === 'critical') {
-          const auditManagers = getUsersByRole('audit_manager');
-          for (const manager of auditManagers) {
-            createNotification({
-              user_id: manager.id,
-              type: 'incident_critical',
-              title: 'Critical Finding Detected',
-              message: `Critical finding detected in audit ${audit.audit_code} at ${entityName}. Immediate attention required.`,
-              link_to: `/audits/${audit.id}`,
-              read: false,
-            });
-          }
-        }
-      }
-
-      // Step 1: Update audit status
-      updateAudit(audit.id, {
-        status: 'submitted',
+      // Update audit status
+      await updateAudit(audit.id, {
+        status: 'pending_verification',
         completed_at: new Date().toISOString(),
         score: scoreResult.totalScore,
         pass_fail: scoreResult.passFail,
       });
 
+      // Generate & persist findings
+      const findingsToInsert: Array<{
+        id: string;
+        finding_code: string;
+        audit_id: string;
+        item_id: string;
+        section_name: string;
+        category: string;
+        severity: FindingSeverity;
+        description: string;
+        evidence_urls: string[];
+        status: 'open';
+      }> = [];
+
+      const findingByItemId = new Map<string, { findingId: string; severity: FindingSeverity; findingCode: string }>();
+
+      for (const section of sections) {
+        for (const item of section.items) {
+          const state = statesMap.get(item.id);
+          const response = state?.response ?? null;
+          const hasManualNote = !!state?.manualFinding?.trim();
+          const isFailed = isFailedForFinding(item, response);
+          const evidencePaths = state?.evidencePaths ?? [];
+
+          if (!isFailed && !hasManualNote) continue;
+
+          const severity = determineSeverity(item, section);
+          const description = hasManualNote
+            ? state!.manualFinding.trim()
+            : `Non-conformance: ${item.text}`;
+
+          findingsToInsert.push({
+            id: (() => {
+              const id = crypto.randomUUID();
+              const findingCode = generateFindingCode();
+              findingByItemId.set(item.id, { findingId: id, severity, findingCode });
+              return id;
+            })(),
+            finding_code: findingByItemId.get(item.id)!.findingCode,
+            audit_id: audit.id,
+            item_id: item.id,
+            section_name: section.name,
+            category: section.name,
+            severity,
+            description,
+            evidence_urls: evidencePaths,
+            status: 'open',
+          });
+        }
+      }
+
+      await insertFindings(findingsToInsert);
+
+      const capasToInsert = findingsToInsert.map(f => {
+        const priority = f.severity;
+        const assignedTo = getAssigneeForCAPA(audit.entity_type, audit.entity_id);
+        const dueDate = calculateDueDate(f.severity);
+        return {
+          id: crypto.randomUUID(),
+          capa_code: `CPA-${new Date().getFullYear()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
+          finding_id: f.id,
+          audit_id: audit.id,
+          entity_type: audit.entity_type,
+          entity_id: audit.entity_id,
+          description: f.description,
+          assigned_to: assignedTo,
+          due_date: dueDate,
+          status: 'pending_verification' as const,
+          priority: priority as any,
+          evidence_urls: f.evidence_urls,
+          notes: undefined,
+          sub_tasks: [],
+        };
+      });
+
+      await insertCAPAs(capasToInsert);
+
+      setSubmittedFindings(findingsToInsert);
+      setSubmittedCAPAs(capasToInsert as any);
+
+      await queryClient.invalidateQueries({ queryKey: ['audits'] });
+
       setAudit(prev => prev ? {
         ...prev,
-        status: 'submitted',
+        status: 'pending_verification',
         completed_at: new Date().toISOString(),
         score: scoreResult.totalScore,
         pass_fail: scoreResult.passFail,
       } : null);
 
-      setSubmittedFindings(findings);
-      setSubmittedCAPAs(capas);
-
       return { 
         success: true, 
-        findingsCount: findings.length,
-        capaCount: capas.length,
+        findingsCount: findingsToInsert.length,
+        capaCount: capasToInsert.length,
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        error: e?.message || 'Submission failed',
       };
     } finally {
       setIsSubmitting(false);
     }
-  }, [audit, template, itemStates, validate, scoreResult, calculateItemPoints, determineSeverity]);
+  }, [audit, template, itemStates, validate, scoreResult, calculateItemPoints, determineSeverity, flushEvidenceUploads, queryClient, isFailedForFinding, generateFindingCode]);
 
   // Check if audit is read-only
   const isReadOnly = useMemo(() => {

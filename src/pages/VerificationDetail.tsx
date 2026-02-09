@@ -41,11 +41,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
-import { getAuditById, Audit } from '@/lib/auditStorage';
+import type { Audit } from '@/lib/auditStorage';
 import { 
-  getFindings, 
-  getCAPAs, 
-  getAuditResultsByAuditId,
   Finding,
   CAPA,
   AuditResult
@@ -54,16 +51,15 @@ import {
   approveCAPA,
   rejectCAPA,
   approveAudit,
-  flagAudit,
-  getCAPAActivitiesByCAPAId,
+  rejectAudit,
+  fetchCAPAActivitiesByCAPAId,
+  signAuditEvidencePaths,
   CAPAActivity
-} from '@/lib/verificationStorage';
-import { 
-  getBranches, 
-  getBCKs, 
-  getSuppliers, 
-  getUserById 
-} from '@/lib/entityStorage';
+} from '@/lib/verificationSupabase';
+import { fetchAuditById } from '@/lib/auditSupabase';
+import { fetchAuditResults, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
+import { fetchAuditEntityAndAuditorInfo } from '@/lib/verificationSupabase';
+import { getUsers } from '@/lib/userStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fetchTemplateById } from '@/lib/templateSupabase';
@@ -129,6 +125,8 @@ export default function VerificationDetail() {
   const [auditorName, setAuditorName] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [auditResults, setAuditResults] = useState<AuditResult[]>([]);
+  const [evidenceByItemId, setEvidenceByItemId] = useState<Map<string, string[]>>(new Map());
 
   const templateQuery = useQuery({
     queryKey: ['template', audit?.template_id],
@@ -145,65 +143,67 @@ export default function VerificationDetail() {
     }
   }, [id, user]);
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true);
     try {
-      const auditData = getAuditById(id!);
+      const auditData = await fetchAuditById(id!);
       if (!auditData) {
-        navigate('/verification');
+        navigate('/audits/pending-verification');
         return;
       }
       
       setAudit(auditData);
-      
-      // Load entity info
-      let entity: any;
-      if (auditData.entity_type === 'branch') {
-        entity = getBranches().find(b => b.id === auditData.entity_id);
-        setEntityInfo({
-          name: entity?.name || 'Unknown',
-          code: entity?.code || '',
-          city: entity?.city,
-          type: 'Branch'
-        });
-      } else if (auditData.entity_type === 'bck') {
-        entity = getBCKs().find(b => b.id === auditData.entity_id);
-        setEntityInfo({
-          name: entity?.name || 'Unknown',
-          code: entity?.code || '',
-          city: entity?.city,
-          type: 'BCK'
-        });
-      } else if (auditData.entity_type === 'supplier') {
-        entity = getSuppliers().find(s => s.id === auditData.entity_id);
-        setEntityInfo({
-          name: entity?.name || 'Unknown',
-          code: entity?.supplier_code || '',
-          city: entity?.city,
-          type: 'Supplier'
-        });
-      }
-      
-      // Load auditor name
-      if (auditData.auditor_id) {
-        const auditor = getUserById(auditData.auditor_id);
-        setAuditorName(auditor?.full_name || 'Unknown');
-      }
+
+      const info = await fetchAuditEntityAndAuditorInfo(auditData);
+      setEntityInfo({
+        name: info.entityName,
+        code: info.entityCode,
+        city: info.entityCity,
+        type: info.entityTypeLabel,
+      });
+      setAuditorName(info.auditorName);
       
       // Template is loaded via React Query; sections will be built in a separate effect.
       setTemplateName('');
       setSections([]);
       setFindings([]);
-      
-      // Load CAPA and activities
-      const auditCapas = getCAPAs().filter(c => c.audit_id === auditData.id);
-      setCapas(auditCapas);
+
+      const [auditCapas, auditFindings, results] = await Promise.all([
+        fetchCAPAsByAuditId(auditData.id),
+        fetchFindingsByAuditId(auditData.id),
+        fetchAuditResults(auditData.id),
+      ]);
+
+      const [signedFindings, signedCapas] = await Promise.all([
+        Promise.all(
+          auditFindings.map(async (f) => ({
+            ...f,
+            evidence_urls: await signAuditEvidencePaths(f.evidence_urls || []),
+          }))
+        ),
+        Promise.all(
+          auditCapas.map(async (c) => ({
+            ...c,
+            evidence_urls: await signAuditEvidencePaths(c.evidence_urls || []),
+          }))
+        ),
+      ]);
+
+      setCapas(signedCapas);
+      setFindings(signedFindings);
+      setAuditResults(results);
+
+      const signedMap = new Map<string, string[]>();
+      for (const r of results) {
+        signedMap.set(r.item_id, await signAuditEvidencePaths(r.evidence_urls || []));
+      }
+      setEvidenceByItemId(signedMap);
       
       const activities: Record<string, CAPAActivity[]> = {};
       const decisions: Record<string, 'approved' | 'rejected' | 'pending'> = {};
       
       for (const capa of auditCapas) {
-        activities[capa.id] = getCAPAActivitiesByCAPAId(capa.id);
+        activities[capa.id] = await fetchCAPAActivitiesByCAPAId(capa.id);
         decisions[capa.id] = capa.status === 'closed' || capa.status === 'approved' 
           ? 'approved' 
           : capa.status === 'rejected' 
@@ -231,9 +231,8 @@ export default function VerificationDetail() {
       return;
     }
 
-    const results = getAuditResultsByAuditId(audit.id);
-    const allFindings = getFindings().filter(f => f.audit_id === audit.id);
-    setFindings(allFindings);
+    const results = auditResults;
+    const allFindings = findings;
 
     const sectionsData: ChecklistSectionDisplay[] = (template.checklist_json.sections as any[]).map((section: any) => {
       const items: ChecklistItemDisplay[] = (section.items as any[]).map((item: any) => {
@@ -244,7 +243,7 @@ export default function VerificationDetail() {
           id: item.id,
           text: item.text,
           response: result?.response,
-          evidence: result?.evidence_urls || [],
+          evidence: evidenceByItemId.get(item.id) || [],
           points: result?.points_earned || 0,
           maxPoints: item.points,
           finding,
@@ -262,38 +261,38 @@ export default function VerificationDetail() {
     });
 
     setSections(sectionsData);
-  }, [audit, templateQuery.data]);
+  }, [audit, templateQuery.data, auditResults, evidenceByItemId, findings]);
 
-  const handleApproveCAPA = (capaId: string) => {
-    const result = approveCAPA(capaId, user!.id);
-    if (result.success) {
+  const handleApproveCAPA = async (capaId: string) => {
+    try {
+      await approveCAPA(capaId, user!.id);
       setCAPADecisions(prev => ({ ...prev, [capaId]: 'approved' }));
-      loadData(); // Refresh to get updated activities
+      await loadData();
       toast({ title: 'CAPA approved', description: 'The corrective action has been approved.' });
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to approve CAPA', variant: 'destructive' });
     }
   };
 
-  const handleInlineRejectCAPA = (capaId: string) => {
+  const handleInlineRejectCAPA = async (capaId: string) => {
     if (!inlineRejectReason.trim()) {
       toast({ title: 'Error', description: 'Please provide a reason for rejection.', variant: 'destructive' });
       return;
     }
     
-    const result = rejectCAPA(capaId, user!.id, inlineRejectReason);
-    if (result.success) {
+    try {
+      await rejectCAPA(capaId, user!.id, inlineRejectReason);
       setCAPADecisions(prev => ({ ...prev, [capaId]: 'rejected' }));
       setInlineRejectCapaId(null);
       setInlineRejectReason('');
-      loadData();
+      await loadData();
       toast({ title: 'CAPA rejected', description: 'The entity manager has been notified.' });
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to reject CAPA', variant: 'destructive' });
     }
   };
 
-  const handleBulkRejectCAPAs = () => {
+  const handleBulkRejectCAPAs = async () => {
     if (selectedCAPAsForReject.size === 0) {
       toast({ title: 'Error', description: 'Please select at least one CAPA to reject.', variant: 'destructive' });
       return;
@@ -302,46 +301,50 @@ export default function VerificationDetail() {
       toast({ title: 'Error', description: 'Please provide a reason for rejection.', variant: 'destructive' });
       return;
     }
-    
-    for (const capaId of selectedCAPAsForReject) {
-      rejectCAPA(capaId, user!.id, rejectReason);
-      setCAPADecisions(prev => ({ ...prev, [capaId]: 'rejected' }));
+
+    try {
+      for (const capaId of selectedCAPAsForReject) {
+        await rejectCAPA(capaId, user!.id, rejectReason);
+        setCAPADecisions(prev => ({ ...prev, [capaId]: 'rejected' }));
+      }
+
+      setIsRejectModalOpen(false);
+      setSelectedCAPAsForReject(new Set());
+      setRejectReason('');
+      await loadData();
+      toast({ title: 'CAPA(s) rejected', description: 'The entity manager has been notified.' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to reject CAPA(s)', variant: 'destructive' });
     }
-    
-    setIsRejectModalOpen(false);
-    setSelectedCAPAsForReject(new Set());
-    setRejectReason('');
-    loadData();
-    toast({ title: 'CAPA(s) rejected', description: 'The entity manager has been notified.' });
   };
 
-  const handleApproveAudit = () => {
-    const result = approveAudit(audit!.id, user!.id);
-    if (result.success) {
+  const handleApproveAudit = async () => {
+    try {
+      await approveAudit(audit!.id, user!.id);
       setIsRecalculating(true);
       setTimeout(() => {
         setIsRecalculating(false);
         toast({ title: 'Audit approved', description: 'Health score recalculation triggered.' });
         navigate('/audits/pending-verification');
       }, 2000);
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to approve audit', variant: 'destructive' });
     }
   };
 
-  const handleFlagAudit = () => {
+  const handleFlagAudit = async () => {
     if (!flagReason.trim()) {
       toast({ title: 'Error', description: 'Please provide a reason for flagging.', variant: 'destructive' });
       return;
     }
-    
-    const result = flagAudit(audit!.id, user!.id, flagReason);
-    if (result.success) {
+
+    try {
+      await rejectAudit(audit!.id, user!.id, flagReason);
       setIsFlagModalOpen(false);
-      toast({ title: 'Audit flagged', description: 'Audit Manager has been notified.' });
+      toast({ title: 'Audit rejected', description: 'Audit has been rejected.' });
       navigate('/audits/pending-verification');
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to reject audit', variant: 'destructive' });
     }
   };
 
@@ -397,6 +400,12 @@ export default function VerificationDetail() {
       closed: 'bg-green-100 text-green-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getUserName = (userId: string | undefined): string => {
+    if (!userId) return 'Unassigned';
+    const u = getUsers().find(x => x.id === userId);
+    return u?.full_name || 'Unassigned';
   };
 
   const getScoreColor = (score: number | undefined) => {
@@ -727,7 +736,7 @@ export default function VerificationDetail() {
                         <div className="flex items-center gap-4 text-sm">
                           <div className="flex items-center gap-1">
                             <User className="h-4 w-4 text-muted-foreground" />
-                            <span>{getUserById(capa.assigned_to)?.full_name || 'Unassigned'}</span>
+                            <span>{getUserName(capa.assigned_to)}</span>
                           </div>
                           <div className={`flex items-center gap-1 ${isOverdue ? 'text-red-600' : ''}`}>
                             <Clock className="h-4 w-4" />
@@ -781,7 +790,7 @@ export default function VerificationDetail() {
                                     {format(new Date(activity.created_at), 'MMM d, HH:mm')}
                                   </span>
                                   <span>
-                                    {getUserById(activity.user_id)?.full_name || 'System'}: {activity.details || activity.action}
+                                    {getUserName(activity.user_id)}: {activity.details || activity.action}
                                   </span>
                                 </div>
                               ))}

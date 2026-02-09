@@ -81,6 +81,12 @@ export const navigationConfig: NavSection[] = [
         roles: ['super_admin', 'audit_manager', 'regional_manager', 'auditor'],
       },
       {
+        title: 'Pending Verification',
+        href: '/audits/pending-verification',
+        icon: 'CheckCircle',
+        roles: ['super_admin', 'audit_manager'],
+      },
+      {
         title: 'CAPA',
         href: '/capa',
         icon: 'CheckCircle',
@@ -135,7 +141,7 @@ export const routeAccess: Record<string, UserRole[]> = {
   '/templates': ['super_admin', 'audit_manager'],
   '/audit-plans': ['super_admin', 'audit_manager'],
   '/audits': ['super_admin', 'audit_manager', 'regional_manager', 'auditor'],
-  '/audits/pending-verification': ['super_admin', 'audit_manager', 'regional_manager'],
+  '/audits/pending-verification': ['super_admin', 'audit_manager'],
   '/capa': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager', 'staff'],
   '/incidents': ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager', 'bck_manager'],
   '/analytics': ['super_admin', 'audit_manager'],

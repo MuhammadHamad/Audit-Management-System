@@ -109,9 +109,23 @@ const App = () => (
                   <Route path="/templates/:id/edit" element={<Suspense fallback={<PageLoader />}><TemplateBuilderPage /></Suspense>} />
                   <Route path="/audit-plans" element={<Suspense fallback={<PageLoader />}><AuditPlansPage /></Suspense>} />
                   <Route path="/audits" element={<AuditsPage />} />
-                  <Route path="/audits/pending-verification" element={<Suspense fallback={<PageLoader />}><VerificationQueuePage /></Suspense>} />
+                  <Route
+                    path="/audits/pending-verification"
+                    element={
+                      <ProtectedRoute allowedRoles={['super_admin', 'audit_manager']}>
+                        <Suspense fallback={<PageLoader />}><VerificationQueuePage /></Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route path="/audits/:id" element={<Suspense fallback={<PageLoader />}><AuditExecutionPage /></Suspense>} />
-                  <Route path="/audits/:id/verify" element={<Suspense fallback={<PageLoader />}><VerificationDetailPage /></Suspense>} />
+                  <Route
+                    path="/audits/:id/verify"
+                    element={
+                      <ProtectedRoute allowedRoles={['super_admin', 'audit_manager']}>
+                        <Suspense fallback={<PageLoader />}><VerificationDetailPage /></Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route path="/capa" element={<CAPAPage />} />
                   <Route path="/capa/:id" element={<Suspense fallback={<PageLoader />}><CAPADetailPage /></Suspense>} />
                   <Route path="/incidents" element={<Suspense fallback={<PageLoader />}><IncidentsPage /></Suspense>} />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -29,10 +29,8 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getVerificationQueue, 
-  VerificationQueueItem 
-} from '@/lib/verificationStorage';
+import { useQuery } from '@tanstack/react-query';
+import { fetchVerificationQueue, type VerificationQueueItem } from '@/lib/verificationSupabase';
 import { formatDistanceToNow } from 'date-fns';
 
 const ITEMS_PER_PAGE = 25;
@@ -40,31 +38,28 @@ const ITEMS_PER_PAGE = 25;
 export default function VerificationQueue() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
-  const [queueItems, setQueueItems] = useState<VerificationQueueItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    if (user) {
-      loadQueue();
-    }
-  }, [user]);
+  const canAccess = !!user && ['super_admin', 'audit_manager'].includes(user.role);
 
-  const loadQueue = () => {
-    setIsLoading(true);
-    try {
-      const items = getVerificationQueue(user!.id, user!.role);
-      setQueueItems(items);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const queueQuery = useQuery({
+    queryKey: ['verification-queue', user?.id, user?.role],
+    queryFn: async () => {
+      if (!user) return [] as VerificationQueueItem[];
+      return fetchVerificationQueue({ userId: user.id, userRole: user.role });
+    },
+    enabled: !!user && canAccess,
+    staleTime: 30 * 1000,
+  });
+
+  const isLoading = queueQuery.isLoading;
+  const queueItems = queueQuery.data ?? [];
 
   // Filter items
-  const filteredItems = queueItems.filter(item => {
+  const filteredItems = useMemo(() => queueItems.filter(item => {
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -96,7 +91,7 @@ export default function VerificationQueue() {
     }
 
     return true;
-  });
+  }), [queueItems, searchQuery, entityTypeFilter, priorityFilter]);
 
   // Stats
   const stats = {
@@ -112,19 +107,13 @@ export default function VerificationQueue() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  // Entity type options based on role
-  const entityTypeOptions = user?.role === 'regional_manager'
-    ? [
-        { value: 'all', label: 'All Entity Types' },
-        { value: 'branch', label: 'Branch' },
-        { value: 'bck', label: 'BCK' },
-      ]
-    : [
-        { value: 'all', label: 'All Entity Types' },
-        { value: 'branch', label: 'Branch' },
-        { value: 'bck', label: 'BCK' },
-        { value: 'supplier', label: 'Supplier' },
-      ];
+  // Entity type options
+  const entityTypeOptions = [
+    { value: 'all', label: 'All Entity Types' },
+    { value: 'branch', label: 'Branch' },
+    { value: 'bck', label: 'BCK' },
+    { value: 'supplier', label: 'Supplier' },
+  ];
 
   const getScoreColor = (score: number | undefined) => {
     if (!score) return 'text-muted-foreground';
@@ -143,7 +132,7 @@ export default function VerificationQueue() {
     return colors[type] || 'bg-gray-100 text-gray-800';
   };
 
-  if (!user || !['super_admin', 'audit_manager', 'regional_manager'].includes(user.role)) {
+  if (!canAccess) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <p className="text-muted-foreground">You do not have access to this page.</p>

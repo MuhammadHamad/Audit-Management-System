@@ -50,6 +50,42 @@ const mapFinding = (row: any): Finding => ({
   updated_at: row.updated_at,
 });
 
+export async function insertFindings(
+  rows: Array<{
+    id: string;
+    finding_code: string;
+    audit_id: string;
+    item_id: string;
+    section_name: string;
+    category: string;
+    severity: FindingSeverity;
+    description: string;
+    evidence_urls: string[];
+    status: FindingStatus;
+  }>
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('findings').insert(
+    rows.map(r => ({
+      id: r.id,
+      finding_code: r.finding_code,
+      audit_id: r.audit_id,
+      item_id: r.item_id,
+      section_name: r.section_name,
+      category: r.category,
+      severity: r.severity,
+      description: r.description,
+      evidence_urls: r.evidence_urls,
+      status: r.status,
+      updated_at: now,
+    }))
+  );
+
+  if (error) throw error;
+}
+
 // ============= CAPAs =============
 
 export async function fetchCAPAs(): Promise<CAPA[]> {
@@ -114,6 +150,50 @@ const mapCAPA = (row: any): CAPA => ({
   updated_at: row.updated_at,
 });
 
+export async function insertCAPAs(
+  rows: Array<{
+    id: string;
+    capa_code: string;
+    finding_id: string;
+    audit_id: string;
+    entity_type: CAPA['entity_type'];
+    entity_id: string;
+    description: string;
+    assigned_to?: string;
+    due_date: string;
+    status: CAPAStatus;
+    priority: CAPAPriority;
+    evidence_urls: string[];
+    notes?: string;
+    sub_tasks: any[];
+  }>
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('capa').insert(
+    rows.map(r => ({
+      id: r.id,
+      capa_code: r.capa_code,
+      finding_id: r.finding_id,
+      audit_id: r.audit_id,
+      entity_type: r.entity_type,
+      entity_id: r.entity_id,
+      description: r.description,
+      assigned_to: r.assigned_to ?? null,
+      due_date: r.due_date,
+      status: r.status,
+      priority: r.priority,
+      evidence_urls: r.evidence_urls,
+      notes: r.notes ?? null,
+      sub_tasks: r.sub_tasks,
+      updated_at: now,
+    }))
+  );
+
+  if (error) throw error;
+}
+
 // ============= AUDIT RESULTS =============
 
 export async function fetchAuditResults(auditId: string): Promise<AuditResult[]> {
@@ -125,6 +205,70 @@ export async function fetchAuditResults(auditId: string): Promise<AuditResult[]>
   
   if (error) throw error;
   return (data ?? []).map(mapAuditResult);
+}
+
+export async function upsertAuditResults(
+  results: Omit<AuditResult, 'id' | 'created_at' | 'updated_at'>[]
+): Promise<void> {
+  if (results.length === 0) return;
+
+  const now = new Date().toISOString();
+  const rows = results.map(r => ({
+    audit_id: r.audit_id,
+    section_id: r.section_id,
+    item_id: r.item_id,
+    response: r.response,
+    evidence_urls: r.evidence_urls,
+    points_earned: r.points_earned,
+    updated_at: now,
+  }));
+
+  const { error } = await supabase
+    .from('audit_results')
+    .upsert(rows, { onConflict: 'audit_id,item_id' });
+
+  if (error) throw error;
+}
+
+// ============= AUDIT EVIDENCE (STORAGE) =============
+
+export async function uploadAuditEvidenceFile(
+  auditId: string,
+  itemId: string,
+  file: File
+): Promise<{ path: string; signedUrl: string }> {
+  const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+  const safeExt = (ext || 'bin').toLowerCase();
+  const objectName = `${crypto.randomUUID()}.${safeExt}`;
+  const path = `${auditId}/${itemId}/${objectName}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from('audit-evidence')
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (uploadError) throw uploadError;
+
+  const { data, error: signError } = await supabase
+    .storage
+    .from('audit-evidence')
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+
+  if (signError) throw signError;
+  if (!data?.signedUrl) throw new Error('Failed to create signed URL');
+
+  return { path, signedUrl: data.signedUrl };
+}
+
+export async function createSignedAuditEvidenceUrl(path: string): Promise<string> {
+  const { data, error } = await supabase
+    .storage
+    .from('audit-evidence')
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error('Failed to create signed URL');
+  return data.signedUrl;
 }
 
 const mapAuditResult = (row: any): AuditResult => ({
