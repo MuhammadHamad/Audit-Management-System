@@ -146,8 +146,27 @@ export default function AuditsPage() {
       }
       await deleteAudit(audit.id);
     },
-    onSuccess: async () => {
-      await invalidateAudits(queryClient);
+    onMutate: async (audit: Audit) => {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.audits });
+
+      const previousAudits = queryClient.getQueryData<Audit[]>(QUERY_KEYS.audits);
+      queryClient.setQueryData<Audit[]>(QUERY_KEYS.audits, (old = []) => old.filter(a => a.id !== audit.id));
+
+      return { previousAudits };
+    },
+    onError: (error: any, _audit, context) => {
+      if (context?.previousAudits) {
+        queryClient.setQueryData<Audit[]>(QUERY_KEYS.audits, context.previousAudits);
+      }
+      toast({
+        title: 'Cannot Delete',
+        description: error?.message || 'Failed to delete audit.',
+        variant: 'destructive',
+      });
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.audits });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auditPlans });
     },
   });
 
@@ -241,13 +260,6 @@ export default function AuditsPage() {
         toast({
           title: 'Deleted',
           description: `Audit ${auditToDelete.audit_code} deleted successfully.`,
-        });
-      },
-      onError: (e: any) => {
-        toast({
-          title: 'Cannot Delete',
-          description: e?.message || 'Failed to delete audit.',
-          variant: 'destructive',
         });
       },
     });

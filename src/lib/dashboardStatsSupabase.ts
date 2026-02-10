@@ -28,14 +28,17 @@ export const calculateKPIData = (
   findings: Finding[],
   branches: Branch[],
   bcks: BCK[],
-  suppliers: Supplier[]
+  suppliers: Supplier[],
+  options?: { passRateDays?: number }
 ) => {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
   const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
   const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const passRateDays = options?.passRateDays ?? 90;
+  const windowStart = new Date(now.getTime() - passRateDays * 24 * 60 * 60 * 1000);
+  const previousWindowStart = new Date(now.getTime() - passRateDays * 2 * 24 * 60 * 60 * 1000);
 
   // Entities count
   const totalEntities = 
@@ -57,19 +60,18 @@ export const calculateKPIData = (
   // Pass rate (90 days)
   const approvedAudits = audits.filter(a => 
     a.status === 'approved' && 
-    new Date(a.completed_at || a.updated_at) >= ninetyDaysAgo
+    new Date(a.completed_at || a.updated_at) >= windowStart
   );
   const passedAudits = approvedAudits.filter(a => a.pass_fail === 'pass');
   const passRate = approvedAudits.length > 0 
     ? Math.round((passedAudits.length / approvedAudits.length) * 100)
     : 0;
 
-  // Previous 90 days for comparison
-  const oneEightyDaysAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+  // Previous window for comparison
   const previousApprovedAudits = audits.filter(a => 
     a.status === 'approved' && 
-    new Date(a.completed_at || a.updated_at) >= oneEightyDaysAgo &&
-    new Date(a.completed_at || a.updated_at) < ninetyDaysAgo
+    new Date(a.completed_at || a.updated_at) >= previousWindowStart &&
+    new Date(a.completed_at || a.updated_at) < windowStart
   );
   const previousPassedAudits = previousApprovedAudits.filter(a => a.pass_fail === 'pass');
   const passRatePrevious = previousApprovedAudits.length > 0 
@@ -400,25 +402,27 @@ export const calculateIncidentSummary = (
 // ============= AUDITOR WORKLOAD =============
 export const calculateAuditorWorkload = (
   audits: Audit[],
-  auditors: Array<{ id: string; full_name: string; avatar_url?: string }>
+  auditors: Array<{ id: string; full_name: string; avatar_url?: string }>,
+  options?: { completedWindowDays?: number }
 ) => {
   const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const completedWindowDays = options?.completedWindowDays ?? 30;
+  const completedWindowStart = new Date(now.getTime() - completedWindowDays * 24 * 60 * 60 * 1000);
 
   return auditors.map(auditor => {
     const auditorAudits = audits.filter(a => a.auditor_id === auditor.id);
-    
-    const scheduled = auditorAudits.filter(a => a.status === 'scheduled').length;
+
+    // Current workload counters
+    const scheduled = auditorAudits.filter(a => ['scheduled', 'overdue'].includes(a.status)).length;
     const inProgress = auditorAudits.filter(a => a.status === 'in_progress').length;
-    const submitted = auditorAudits.filter(a => a.status === 'submitted').length;
+    const submitted = auditorAudits.filter(a => ['submitted', 'pending_verification'].includes(a.status)).length;
     
     const completed30d = auditorAudits.filter(a => 
       a.status === 'approved' &&
       a.completed_at &&
-      new Date(a.completed_at) >= thirtyDaysAgo
+      new Date(a.completed_at) >= completedWindowStart
     ).length;
 
-    // Workload score: weighted sum
     const workloadScore = (scheduled * 1) + (inProgress * 2) + (submitted * 1.5);
 
     return {

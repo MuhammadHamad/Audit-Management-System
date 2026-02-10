@@ -88,9 +88,10 @@ export const KPICard: React.FC<KPICardProps> = ({
 
 interface KPIGridProps {
   data: KPIData;
+  passRateLabel?: string;
 }
 
-export const KPIGrid: React.FC<KPIGridProps> = ({ data }) => {
+export const KPIGrid: React.FC<KPIGridProps> = ({ data, passRateLabel = 'Pass Rate (90d)' }) => {
   const passRateColor = data.passRate >= 80 ? 'green' : data.passRate >= 60 ? 'yellow' : 'red';
   const openCAPAColor = data.openCAPA > 0 ? 'red' : 'default';
   const criticalColor = data.criticalFindings > 0 ? 'red' : 'default';
@@ -110,7 +111,7 @@ export const KPIGrid: React.FC<KPIGridProps> = ({ data }) => {
         color="blue"
       />
       <KPICard 
-        label="Pass Rate (90d)" 
+        label={passRateLabel} 
         value={data.passRate} 
         previousValue={data.passRatePrevious}
         color={passRateColor}
@@ -676,9 +677,13 @@ export const IncidentSummary: React.FC<IncidentSummaryProps> = ({ data }) => {
 // ============= AUDITOR WORKLOAD TABLE =============
 interface AuditorWorkloadTableProps {
   auditors: AuditorWorkloadItem[];
+  completedLabel?: string;
 }
 
-export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({ auditors }) => {
+export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({
+  auditors,
+  completedLabel = 'Completed (30d)',
+}) => {
   const maxWorkload = 10;
 
   const getWorkloadColor = (score: number) => {
@@ -710,7 +715,7 @@ export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({ audi
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">Scheduled</th>
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">In Progress</th>
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">Submitted</th>
-                  <th className="text-center py-3 px-2 font-medium text-muted-foreground">Completed (30d)</th>
+                  <th className="text-center py-3 px-2 font-medium text-muted-foreground">{completedLabel}</th>
                   <th className="text-left py-3 px-2 font-medium text-muted-foreground w-40">Workload</th>
                 </tr>
               </thead>

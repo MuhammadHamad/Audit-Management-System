@@ -86,6 +86,44 @@ export async function insertFindings(
   if (error) throw error;
 }
 
+export async function uploadCAPAEvidenceFile(
+  capaId: string,
+  file: File
+): Promise<{ path: string; signedUrl: string }> {
+  const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+  const safeExt = (ext || 'bin').toLowerCase();
+  const objectName = `${crypto.randomUUID()}.${safeExt}`;
+  const path = `${capaId}/${objectName}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from('capa-evidence')
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (uploadError) throw uploadError;
+
+  const { data, error: signError } = await supabase
+    .storage
+    .from('capa-evidence')
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+
+  if (signError) throw signError;
+  if (!data?.signedUrl) throw new Error('Failed to create signed URL');
+
+  return { path, signedUrl: data.signedUrl };
+}
+
+export async function createSignedCAPAEvidenceUrl(path: string): Promise<string> {
+  const { data, error } = await supabase
+    .storage
+    .from('capa-evidence')
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error('Failed to create signed URL');
+  return data.signedUrl;
+}
+
 // ============= CAPAs =============
 
 export async function fetchCAPAs(): Promise<CAPA[]> {
@@ -139,8 +177,8 @@ const mapCAPA = (row: any): CAPA => ({
   entity_type: row.entity_type,
   entity_id: row.entity_id,
   description: row.description,
-  assigned_to: row.assigned_to ?? undefined,
-  due_date: row.due_date ?? undefined,
+  assigned_to: row.assigned_to ?? '',
+  due_date: row.due_date ?? '',
   priority: row.priority,
   status: row.status,
   evidence_urls: Array.isArray(row.evidence_urls) ? row.evidence_urls : [],
@@ -149,6 +187,41 @@ const mapCAPA = (row: any): CAPA => ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
+
+export async function fetchCAPAById(id: string): Promise<CAPA | null> {
+  const { data, error } = await supabase
+    .from('capa')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? mapCAPA(data) : null;
+}
+
+export async function updateCAPA(
+  id: string,
+  updates: Partial<{
+    status: CAPAStatus;
+    notes: string | null;
+    evidence_urls: string[];
+    sub_tasks: any[];
+    assigned_to: string | null;
+    due_date: string | null;
+    priority: CAPAPriority;
+    description: string;
+  }>
+): Promise<void> {
+  const { error } = await supabase
+    .from('capa')
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) throw error;
+}
 
 export async function insertCAPAs(
   rows: Array<{

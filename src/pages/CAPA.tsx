@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -30,25 +30,44 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getCAPAsForUser, 
-  getStaffTasksForUser,
-  getCAPAStats,
-  runEscalationCheck,
-  CAPAListItem,
-  StaffTaskItem
-} from '@/lib/capaStorage';
+import { useQuery } from '@tanstack/react-query';
+import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
+import { fetchCAPAs, fetchFindings } from '@/lib/executionSupabase';
+import { fetchBCKs, fetchBranches, fetchSuppliers } from '@/lib/entitySupabase';
 import { format } from 'date-fns';
 
 const ITEMS_PER_PAGE = 25;
 
+interface CAPAListItem {
+  capa: CAPA;
+  finding: {
+    id: string;
+    finding_code: string;
+    description: string;
+    severity: string;
+  } | null;
+  entityName: string;
+  entityCode: string;
+  entityType: string;
+  isOverdue: boolean;
+  subTaskProgress: {
+    completed: number;
+    total: number;
+  };
+}
+
+interface StaffTaskItem {
+  capaId: string;
+  capaCode: string;
+  capaPriority: string;
+  capaDueDate: string;
+  subTask: SubTask;
+  isOverdue: boolean;
+}
+
 export default function CAPAPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
-  const [capaItems, setCAPAItems] = useState<CAPAListItem[]>([]);
-  const [staffTasks, setStaffTasks] = useState<StaffTaskItem[]>([]);
-  const [stats, setStats] = useState({ open: 0, overdue: 0, pendingVerification: 0, escalated: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -58,34 +77,161 @@ export default function CAPAPage() {
   const isManager = ['branch_manager', 'bck_manager', 'audit_manager'].includes(user?.role || '');
   const isReadOnly = ['regional_manager', 'super_admin'].includes(user?.role || '');
 
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user]);
+  const needBranches = !!user && ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager'].includes(user.role);
+  const needBCKs = !!user && ['super_admin', 'audit_manager', 'regional_manager', 'bck_manager'].includes(user.role);
+  const needSuppliers = !!user && ['super_admin', 'audit_manager'].includes(user.role);
 
-  const loadData = () => {
-    setIsLoading(true);
-    try {
-      // Run escalation check
-      runEscalationCheck(user!.id, user!.role);
+  const capasQuery = useQuery({
+    queryKey: ['capas', user?.id, user?.role],
+    queryFn: async () => {
+      const capas = await fetchCAPAs();
+      return capas;
+    },
+    enabled: !!user,
+    staleTime: 30 * 1000,
+  });
 
-      if (isStaff) {
-        const tasks = getStaffTasksForUser(user!.id);
-        setStaffTasks(tasks);
-      } else {
-        const items = getCAPAsForUser(user!.id, user!.role);
-        setCAPAItems(items);
-        
-        if (isManager) {
-          const capaStats = getCAPAStats(user!.id, user!.role);
-          setStats(capaStats);
+  const findingsQuery = useQuery({
+    queryKey: ['findings', user?.id, user?.role],
+    queryFn: async () => {
+      const findings = await fetchFindings();
+      return findings;
+    },
+    enabled: !!user && ['super_admin', 'audit_manager'].includes(user.role),
+    staleTime: 30 * 1000,
+  });
+
+  const branchesQuery = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+    enabled: needBranches,
+    staleTime: 60 * 1000,
+  });
+
+  const bcksQuery = useQuery({
+    queryKey: ['bcks'],
+    queryFn: fetchBCKs,
+    enabled: needBCKs,
+    staleTime: 60 * 1000,
+  });
+
+  const suppliersQuery = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: fetchSuppliers,
+    enabled: needSuppliers,
+    staleTime: 60 * 1000,
+  });
+
+  const isLoading =
+    capasQuery.isLoading ||
+    (findingsQuery.isLoading && ['super_admin', 'audit_manager'].includes(user?.role || '')) ||
+    branchesQuery.isLoading ||
+    bcksQuery.isLoading ||
+    suppliersQuery.isLoading;
+
+  const capas = capasQuery.data ?? [];
+  const findings = (findingsQuery.data ?? []) as Finding[];
+  const branches = branchesQuery.data ?? [];
+  const bcks = bcksQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? [];
+
+  const { capaItems, staffTasks, stats } = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+
+    const findingMap = new Map(findings.map(f => [f.id, f] as const));
+    const branchMap = new Map(branches.map(b => [b.id, b] as const));
+    const bckMap = new Map(bcks.map(b => [b.id, b] as const));
+    const supplierMap = new Map(suppliers.map(s => [s.id, s] as const));
+
+    const staffTasks: StaffTaskItem[] = [];
+    if (user?.role === 'staff') {
+      for (const capa of capas) {
+        for (const st of capa.sub_tasks || []) {
+          if (st.assigned_to_user_id === user.id) {
+            staffTasks.push({
+              capaId: capa.id,
+              capaCode: capa.capa_code,
+              capaPriority: capa.priority,
+              capaDueDate: capa.due_date,
+              subTask: st,
+              isOverdue: capa.due_date < today && st.status !== 'completed',
+            });
+          }
         }
       }
-    } finally {
-      setIsLoading(false);
+      return {
+        capaItems: [] as CAPAListItem[],
+        staffTasks,
+        stats: { open: 0, overdue: 0, pendingVerification: 0, escalated: 0 },
+      };
     }
-  };
+
+    let filteredCapas: CAPA[] = capas;
+    if (user?.role === 'branch_manager') {
+      filteredCapas = capas.filter(c => c.entity_type === 'branch');
+    } else if (user?.role === 'bck_manager') {
+      filteredCapas = capas.filter(c => c.entity_type === 'bck');
+    } else if (user?.role === 'audit_manager') {
+      filteredCapas = capas.filter(c => c.entity_type === 'supplier' || c.status === 'escalated');
+    } else if (user?.role === 'regional_manager') {
+      filteredCapas = capas.filter(c => c.entity_type === 'branch' || c.entity_type === 'bck');
+    }
+
+    const capaItems: CAPAListItem[] = filteredCapas.map(capa => {
+      const subTasks = capa.sub_tasks || [];
+
+      const finding = findingMap.get(capa.finding_id);
+
+      let entityName = '';
+      let entityCode = '';
+      if (capa.entity_type === 'branch') {
+        const b = branchMap.get(capa.entity_id);
+        entityName = b?.name || 'Unknown';
+        entityCode = b?.code || '';
+      } else if (capa.entity_type === 'bck') {
+        const b = bckMap.get(capa.entity_id);
+        entityName = b?.name || 'Unknown';
+        entityCode = b?.code || '';
+      } else if (capa.entity_type === 'supplier') {
+        const s = supplierMap.get(capa.entity_id);
+        entityName = s?.name || 'Unknown';
+        entityCode = s?.supplier_code || '';
+      }
+
+      return {
+        capa,
+        finding: finding
+          ? {
+              id: finding.id,
+              finding_code: finding.finding_code,
+              description: finding.description,
+              severity: finding.severity,
+            }
+          : null,
+        entityName,
+        entityCode,
+        entityType: capa.entity_type,
+        isOverdue: capa.due_date < today && !['closed', 'approved'].includes(capa.status),
+        subTaskProgress: {
+          completed: subTasks.filter(st => st.status === 'completed').length,
+          total: subTasks.length,
+        },
+      };
+    });
+
+    const stats = {
+      open: capaItems.filter(i => ['open', 'in_progress'].includes(i.capa.status)).length,
+      overdue: capaItems.filter(i => i.capa.due_date < today && !['closed', 'approved'].includes(i.capa.status)).length,
+      pendingVerification: capaItems.filter(i => i.capa.status === 'pending_verification').length,
+      escalated: capaItems.filter(i => i.capa.status === 'escalated').length,
+    };
+
+    return {
+      capaItems,
+      staffTasks: [] as StaffTaskItem[],
+      stats,
+    };
+  }, [bcks, branches, capas, findings, suppliers, user?.id, user?.role]);
 
   // Filter items for managers
   const filteredCAPAItems = capaItems.filter(item => {
@@ -94,7 +240,7 @@ export default function CAPAPage() {
       const query = searchQuery.toLowerCase();
       if (
         !item.capa.capa_code.toLowerCase().includes(query) &&
-        !item.finding?.description.toLowerCase().includes(query) &&
+        !(item.finding?.description || item.capa.description).toLowerCase().includes(query) &&
         !item.entityName.toLowerCase().includes(query)
       ) {
         return false;
@@ -430,7 +576,7 @@ export default function CAPAPage() {
                             {item.finding?.finding_code}
                           </span>
                           <p className="text-sm max-w-[200px] truncate">
-                            {item.finding?.description || 'No description'}
+                            {item.finding?.description || item.capa.description || 'No description'}
                           </p>
                         </div>
                       </TableCell>

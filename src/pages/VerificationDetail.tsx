@@ -620,20 +620,20 @@ export default function VerificationDetail() {
                     <div 
                       key={item.id}
                       className={`p-4 rounded-lg border-l-4 ${
-                        item.finding?.severity === 'critical' ? 'border-l-red-500 bg-red-50' :
-                        item.finding?.severity === 'high' ? 'border-l-orange-500 bg-orange-50' :
-                        item.finding?.severity === 'medium' ? 'border-l-yellow-500 bg-yellow-50' :
-                        item.finding?.severity === 'low' ? 'border-l-blue-500 bg-blue-50' :
-                        'border-l-green-500 bg-green-50/50'
+                        item.finding?.severity === 'critical' ? 'border-l-red-500 bg-red-50 text-slate-900 dark:bg-red-950/25 dark:text-slate-50' :
+                        item.finding?.severity === 'high' ? 'border-l-orange-500 bg-orange-50 text-slate-900 dark:bg-orange-950/25 dark:text-slate-50' :
+                        item.finding?.severity === 'medium' ? 'border-l-yellow-500 bg-yellow-50 text-slate-900 dark:bg-yellow-950/25 dark:text-slate-50' :
+                        item.finding?.severity === 'low' ? 'border-l-blue-500 bg-blue-50 text-slate-900 dark:bg-blue-950/25 dark:text-slate-50' :
+                        'border-l-green-500 bg-green-50/50 text-slate-900 dark:bg-green-950/25 dark:text-slate-50'
                       }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <p className="font-medium">{item.text}</p>
-                          <p className="text-sm text-muted-foreground mt-1">
+                          <p className="text-sm text-muted-foreground dark:text-slate-200/80 mt-1">
                             Response: {formatResponse(item.response, item.id)}
                           </p>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground dark:text-slate-200/80">
                             Points: {item.points}/{item.maxPoints}
                           </p>
                         </div>

@@ -44,11 +44,19 @@ export default function AuditExecution() {
   } = useAuditExecution(id || '');
 
   const handleSaveDraft = async () => {
-    await saveDraft();
-    toast({
-      title: 'Draft saved',
-      description: 'Your progress has been saved.',
-    });
+    try {
+      await saveDraft();
+      toast({
+        title: 'Draft saved',
+        description: 'Your progress has been saved.',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Save failed',
+        description: e?.message || 'Failed to save draft',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleSubmit = async () => {

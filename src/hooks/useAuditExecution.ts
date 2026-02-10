@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Audit } from '@/lib/auditStorage';
 import type { 
@@ -64,8 +64,26 @@ export function useAuditExecution(auditId: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const lastSavedSignatureRef = useRef<string>('');
   const [submittedFindings, setSubmittedFindings] = useState<any[]>([]);
   const [submittedCAPAs, setSubmittedCAPAs] = useState<any[]>([]);
+
+  const buildDraftSignature = (states: Map<string, ItemState>): string => {
+    const rows: any[] = [];
+    const keys = Array.from(states.keys()).sort();
+    for (const k of keys) {
+      const s = states.get(k);
+      if (!s) continue;
+      rows.push([
+        k,
+        s.response ?? null,
+        (s.evidencePaths ?? []).slice().sort(),
+        s.manualFinding ?? '',
+        (s.evidenceFiles ?? []).map((f) => `${f.name}:${f.size}:${f.lastModified}`),
+      ]);
+    }
+    return JSON.stringify(rows);
+  };
 
   // Load audit, template, and existing results
   useEffect(() => {
@@ -106,6 +124,7 @@ export function useAuditExecution(auditId: string) {
           }
         }
         setItemStates(statesMap);
+        lastSavedSignatureRef.current = buildDraftSignature(statesMap);
 
         // If audit is completed, findings/CAPA are not loaded here yet.
         if (['submitted', 'approved', 'rejected', 'pending_verification'].includes(loadedAudit.status)) {
@@ -542,7 +561,7 @@ export function useAuditExecution(auditId: string) {
     } finally {
       setIsSaving(false);
     }
-  }, [audit, template, itemStates, calculateItemPoints]);
+  }, [audit, template, calculateItemPoints, flushEvidenceUploads]);
 
   // Submit audit
   const submitAudit = useCallback(async (): Promise<{ 
@@ -600,6 +619,9 @@ export function useAuditExecution(auditId: string) {
         score: scoreResult.totalScore,
         pass_fail: scoreResult.passFail,
       });
+
+      // Invalidate dashboard queries so Submitted count updates immediately
+      await queryClient.invalidateQueries({ queryKey: ['audits'] });
 
       // Generate & persist findings
       const findingsToInsert: Array<{
@@ -711,6 +733,27 @@ export function useAuditExecution(auditId: string) {
     if (!audit) return true;
     return ['submitted', 'approved', 'rejected', 'pending_verification', 'cancelled'].includes(audit.status);
   }, [audit]);
+
+  useEffect(() => {
+    if (!audit || !template) return;
+    if (isReadOnly) return;
+    if (isSaving) return;
+
+    const signature = buildDraftSignature(itemStates);
+    if (signature === lastSavedSignatureRef.current) return;
+
+    const handle = window.setTimeout(() => {
+      void saveDraft()
+        .then(() => {
+          lastSavedSignatureRef.current = signature;
+        })
+        .catch((e) => {
+          console.error('Auto-save draft failed', e);
+        });
+    }, 1200);
+
+    return () => window.clearTimeout(handle);
+  }, [audit, template, itemStates, isReadOnly, isSaving, saveDraft]);
 
   return {
     audit,

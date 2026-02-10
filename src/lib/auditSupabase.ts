@@ -332,18 +332,21 @@ export async function createAudit(values: CreateAuditInput): Promise<Audit> {
 }
 
 export async function updateAudit(id: string, updates: Partial<Audit>): Promise<Audit> {
+  const patch: any = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if ('auditor_id' in updates) patch.auditor_id = updates.auditor_id ?? null;
+  if ('scheduled_date' in updates) patch.scheduled_date = updates.scheduled_date;
+  if ('started_at' in updates) patch.started_at = updates.started_at ?? null;
+  if ('completed_at' in updates) patch.completed_at = updates.completed_at ?? null;
+  if ('status' in updates) patch.status = updates.status;
+  if ('score' in updates) patch.score = updates.score ?? null;
+  if ('pass_fail' in updates) patch.pass_fail = updates.pass_fail ?? null;
+
   const { data, error } = await supabase
     .from('audits')
-    .update({
-      auditor_id: updates.auditor_id ?? null,
-      scheduled_date: updates.scheduled_date,
-      started_at: updates.started_at ?? null,
-      completed_at: updates.completed_at ?? null,
-      status: updates.status,
-      score: updates.score ?? null,
-      pass_fail: updates.pass_fail ?? null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq('id', id)
     .select('*')
     .single();
@@ -353,8 +356,17 @@ export async function updateAudit(id: string, updates: Partial<Audit>): Promise<
 }
 
 export async function deleteAudit(id: string): Promise<void> {
-  const { error } = await supabase.from('audits').delete().eq('id', id);
+  const { data, error } = await supabase
+    .from('audits')
+    .delete()
+    .eq('id', id)
+    .select('id')
+    .maybeSingle();
+
   if (error) throw error;
+  if (!data?.id) {
+    throw new Error('Delete failed: audit not deleted (insufficient permissions or already removed).');
+  }
 }
 
 export async function fetchAuditById(id: string): Promise<Audit | null> {

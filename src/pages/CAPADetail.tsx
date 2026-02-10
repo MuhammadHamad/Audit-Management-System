@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -40,23 +40,21 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { getCAPAs, CAPA, SubTask, getFindings } from '@/lib/auditExecutionStorage';
-import { getAuditById } from '@/lib/auditStorage';
+import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
+import { fetchAuditById } from '@/lib/auditSupabase';
+import { fetchFindingsByAuditId } from '@/lib/executionSupabase';
 import {
-  addSubTask,
-  updateSubTaskStatus,
-  uploadSubTaskEvidence,
-  deleteSubTask,
-  uploadCAPAEvidence,
-  removeCAPAEvidence,
-  updateCAPANotes,
-  markCAPAPendingVerification,
-  resubmitCAPA,
-  getStaffForEntity,
-  getCAPAActivitiesByCAPAId,
-  CAPAActivity
-} from '@/lib/capaStorage';
-import { getBranches, getBCKs, getSuppliers, getUserById } from '@/lib/entityStorage';
+  createSignedCAPAEvidenceUrl,
+  fetchCAPAById,
+  updateCAPA,
+  uploadCAPAEvidenceFile,
+} from '@/lib/executionSupabase';
+import {
+  fetchCAPAActivitiesByCAPAId,
+  CAPAActivity,
+} from '@/lib/verificationSupabase';
+import { supabase } from '@/integrations/supabase/client';
+import { fetchUserAssignments, fetchUsers } from '@/lib/userStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
 
@@ -68,7 +66,9 @@ export default function CAPADetailPage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [capa, setCAPA] = useState<CAPA | null>(null);
-  const [finding, setFinding] = useState<any>(null);
+  const [capaEvidencePaths, setCapaEvidencePaths] = useState<string[]>([]);
+  const [subTaskEvidencePathsById, setSubTaskEvidencePathsById] = useState<Record<string, string[]>>({});
+  const [finding, setFinding] = useState<Finding | null>(null);
   const [audit, setAudit] = useState<any>(null);
   const [activities, setActivities] = useState<CAPAActivity[]>([]);
   const [entityInfo, setEntityInfo] = useState<{ name: string; code: string; type: string } | null>(null);
@@ -91,15 +91,49 @@ export default function CAPADetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
+  const [users, setUsers] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [assignments, setAssignments] = useState<Array<{ user_id: string; assigned_type: string; assigned_id: string }>>([]);
+
   const isStaff = user?.role === 'staff';
   const isManager = ['branch_manager', 'bck_manager', 'audit_manager'].includes(user?.role || '');
   const isReadOnly = ['regional_manager', 'super_admin'].includes(user?.role || '');
   const isAuditManager = user?.role === 'audit_manager';
 
+  const userNameById = useMemo(() => {
+    const map = new Map(users.map(u => [u.id, u.full_name] as const));
+    return (id?: string | null) => (id ? map.get(id) : undefined);
+  }, [users]);
+
   // For staff, find their specific sub-task
   const staffSubTask = isStaff && capa 
     ? capa.sub_tasks?.find(st => st.assigned_to_user_id === user?.id)
     : null;
+
+  const isImageUrl = (url: string): boolean => {
+    if (!url) return false;
+    if (url.startsWith('data:image')) return true;
+    const base = url.split('?')[0].toLowerCase();
+    return (
+      base.endsWith('.jpg') ||
+      base.endsWith('.jpeg') ||
+      base.endsWith('.png') ||
+      base.endsWith('.gif') ||
+      base.endsWith('.webp')
+    );
+  };
+
+  const isPdfUrl = (url: string): boolean => {
+    if (!url) return false;
+    const base = url.split('?')[0].toLowerCase();
+    return base.endsWith('.pdf');
+  };
+
+  const buildSubTasksPayload = (signedSubTasks: SubTask[]): any[] => {
+    return signedSubTasks.map(st => ({
+      ...st,
+      evidence_urls: subTaskEvidencePathsById[st.id] ?? [],
+    }));
+  };
 
   useEffect(() => {
     if (id && user) {
@@ -107,73 +141,99 @@ export default function CAPADetailPage() {
     }
   }, [id, user]);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const capas = getCAPAs();
-      const capaData = capas.find(c => c.id === id);
-      
+      const [usersData, assignmentsData] = await Promise.all([
+        fetchUsers(),
+        fetchUserAssignments(),
+      ]);
+      setUsers(usersData.map(u => ({ id: u.id, full_name: u.full_name })));
+      setAssignments(assignmentsData.map(a => ({ user_id: a.user_id, assigned_type: a.assigned_type, assigned_id: a.assigned_id })));
+
+      const capaData = id ? await fetchCAPAById(id) : null;
       if (!capaData) {
         navigate('/capa');
         return;
       }
-      
-      setCAPA(capaData);
+
+      const evidencePaths = capaData.evidence_urls || [];
+      setCapaEvidencePaths(evidencePaths);
+
+      const signedEvidence = await Promise.all(evidencePaths.map(p => createSignedCAPAEvidenceUrl(p)));
+
+      const subTaskEvidencePaths: Record<string, string[]> = {};
+      const signedSubTasks: SubTask[] = await Promise.all(
+        (capaData.sub_tasks || []).map(async (st) => {
+          const paths = Array.isArray(st.evidence_urls) ? st.evidence_urls : [];
+          subTaskEvidencePaths[st.id] = paths;
+          const signed = await Promise.all(paths.map(p => createSignedCAPAEvidenceUrl(p)));
+          return {
+            ...st,
+            evidence_urls: signed,
+          };
+        })
+      );
+      setSubTaskEvidencePathsById(subTaskEvidencePaths);
+
+      setCAPA({
+        ...capaData,
+        evidence_urls: signedEvidence,
+        sub_tasks: signedSubTasks,
+      });
       setNotes(capaData.notes || '');
-      
-      // Load finding
-      const findings = getFindings();
-      const findingData = findings.find(f => f.id === capaData.finding_id);
-      setFinding(findingData);
-      
-      // Load audit
-      const auditData = getAuditById(capaData.audit_id);
+
+      const auditData = capaData.audit_id ? await fetchAuditById(capaData.audit_id) : null;
       setAudit(auditData);
-      
-      // Load entity info
-      if (capaData.entity_type === 'branch') {
-        const branch = getBranches().find(b => b.id === capaData.entity_id);
-        setEntityInfo({ name: branch?.name || 'Unknown', code: branch?.code || '', type: 'Branch' });
-      } else if (capaData.entity_type === 'bck') {
-        const bck = getBCKs().find(b => b.id === capaData.entity_id);
-        setEntityInfo({ name: bck?.name || 'Unknown', code: bck?.code || '', type: 'BCK' });
-      } else if (capaData.entity_type === 'supplier') {
-        const supplier = getSuppliers().find(s => s.id === capaData.entity_id);
-        setEntityInfo({ name: supplier?.name || 'Unknown', code: supplier?.supplier_code || '', type: 'Supplier' });
+
+      // Resolve finding: if user is admin/audit_manager, we can fetch findings by audit and match.
+      if (capaData.audit_id && ['super_admin', 'audit_manager'].includes(user?.role || '')) {
+        const findings = await fetchFindingsByAuditId(capaData.audit_id);
+        const f = findings.find(x => x.id === capaData.finding_id) ?? null;
+        setFinding(f);
+      } else {
+        setFinding(null);
       }
-      
-      // Load activities
-      const activityData = getCAPAActivitiesByCAPAId(capaData.id);
-      setActivities(activityData.sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      ));
-      
-      // Check for rejection reason
+
+      // Entity info: use audit + dynamic lookup (no additional deps)
+      if (auditData?.entity_type === 'branch') {
+        const { data, error } = await supabase.from('branches').select('name,code').eq('id', auditData.entity_id).maybeSingle();
+        if (!error) setEntityInfo({ name: data?.name || 'Unknown', code: data?.code || '', type: 'Branch' });
+      } else if (auditData?.entity_type === 'bck') {
+        const { data, error } = await supabase.from('bcks').select('name,code').eq('id', auditData.entity_id).maybeSingle();
+        if (!error) setEntityInfo({ name: data?.name || 'Unknown', code: data?.code || '', type: 'BCK' });
+      } else if (auditData?.entity_type === 'supplier') {
+        const { data, error } = await supabase.from('suppliers').select('name,code').eq('id', auditData.entity_id).maybeSingle();
+        if (!error) setEntityInfo({ name: data?.name || 'Unknown', code: data?.code || '', type: 'Supplier' });
+      }
+
+      const activityData = await fetchCAPAActivitiesByCAPAId(capaData.id);
+      setActivities(activityData.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+
       const rejectionActivity = activityData.find(a => a.action === 'rejected');
       if (rejectionActivity && capaData.status === 'rejected') {
         setRejectionReason(rejectionActivity.details || 'No reason provided');
       } else {
         setRejectionReason(null);
       }
-      
-      // Load available staff for sub-task assignment (branch/BCK only)
-      if ((user?.role === 'branch_manager' || user?.role === 'bck_manager') && 
-          capaData.entity_type !== 'supplier') {
-        const staff = getStaffForEntity(
-          capaData.entity_type as 'branch' | 'bck',
-          capaData.entity_id
-        );
+
+      if ((user?.role === 'branch_manager' || user?.role === 'bck_manager') && capaData.entity_type !== 'supplier') {
+        const staff = usersData
+          .filter(u => u.role === 'staff' && u.status === 'active')
+          .filter(u => assignmentsData.some(a => a.user_id === u.id && a.assigned_type === capaData.entity_type && a.assigned_id === capaData.entity_id))
+          .map(u => ({ id: u.id, full_name: u.full_name }));
         setAvailableStaff(staff);
+      } else {
+        setAvailableStaff([]);
       }
-      
     } finally {
       setIsLoading(false);
     }
-  }, [id, user, navigate]);
+  }, [id, navigate, user?.role]);
 
   const handleNotesBlur = () => {
     if (capa && notes !== capa.notes) {
-      updateCAPANotes(capa.id, notes, user!.id);
+      void updateCAPA(capa.id, { notes });
     }
   };
 
@@ -183,121 +243,140 @@ export default function CAPADetailPage() {
       return;
     }
     
-    addSubTask(capa!.id, newSubTaskDescription, newSubTaskAssignee, user!.id);
+    const now = new Date().toISOString();
+    const newSubTask: SubTask = {
+      id: crypto.randomUUID(),
+      assigned_to_user_id: newSubTaskAssignee,
+      description: newSubTaskDescription,
+      status: 'pending',
+      evidence_urls: [],
+      completed_at: null,
+      created_at: now,
+    };
+    const nextSigned = [...(capa!.sub_tasks || []), newSubTask];
+    void updateCAPA(capa!.id, { sub_tasks: buildSubTasksPayload(nextSigned) });
+    void supabase.from('capa_activity').insert({
+      capa_id: capa!.id,
+      user_id: user!.id,
+      action: 'sub_task_added',
+      details: `${userNameById(user!.id) || 'Manager'}: Sub-task added`,
+      created_at: now,
+    });
     setNewSubTaskDescription('');
     setNewSubTaskAssignee('');
     setShowSubTaskForm(false);
-    loadData();
+    void loadData();
     toast({ title: 'Sub-task added', description: 'The staff member has been notified.' });
   };
 
   const handleDeleteSubTask = () => {
     if (!deleteSubTaskId) return;
-    deleteSubTask(capa!.id, deleteSubTaskId, user!.id);
+    const filteredSigned = (capa!.sub_tasks || []).filter(st => st.id !== deleteSubTaskId);
+    void updateCAPA(capa!.id, { sub_tasks: buildSubTasksPayload(filteredSigned) });
     setDeleteSubTaskId(null);
-    loadData();
+    void loadData();
     toast({ title: 'Sub-task deleted' });
   };
 
   const handleSubTaskStatusChange = (subTaskId: string, status: SubTask['status']) => {
-    updateSubTaskStatus(capa!.id, subTaskId, status, user!.id);
-    loadData();
+    const subTasks = capa!.sub_tasks || [];
+    const idx = subTasks.findIndex(st => st.id === subTaskId);
+    if (idx === -1) return;
+    const updatedSigned = subTasks.map(st =>
+      st.id === subTaskId
+        ? {
+            ...st,
+            status,
+            completed_at: status === 'completed' ? new Date().toISOString() : st.completed_at,
+          }
+        : st
+    );
+    void updateCAPA(capa!.id, { sub_tasks: buildSubTasksPayload(updatedSigned) });
+    void supabase.from('capa_activity').insert({
+      capa_id: capa!.id,
+      user_id: user!.id,
+      action: `sub_task_${status}`,
+      details: `${userNameById(user!.id) || 'User'} marked sub-task as ${status.replace('_', ' ')}`,
+      created_at: new Date().toISOString(),
+    });
+    void loadData();
     toast({ title: `Task marked as ${status.replace('_', ' ')}` });
   };
 
   const handleEvidenceUpload = async (files: FileList, isSubTask: boolean = false, subTaskId?: string) => {
-    const urls: string[] = [];
-    
+    const paths: string[] = [];
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
-      // Compress image if it's an image
-      if (file.type.startsWith('image/')) {
-        const compressedUrl = await compressImage(file);
-        urls.push(compressedUrl);
-      } else {
-        // For non-images (PDFs), create a data URL
-        const reader = new FileReader();
-        const url = await new Promise<string>((resolve) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
-        urls.push(url);
-      }
+      const { path, signedUrl } = await uploadCAPAEvidenceFile(capa!.id, file);
+      paths.push(path);
     }
-    
+
     if (isSubTask && subTaskId) {
-      uploadSubTaskEvidence(capa!.id, subTaskId, urls, user!.id);
+      const existingPaths = subTaskEvidencePathsById[subTaskId] ?? [];
+      const updatedSigned = (capa!.sub_tasks || []).map(st =>
+        st.id === subTaskId
+          ? { ...st, evidence_urls: [...existingPaths, ...paths] }
+          : st
+      );
+      // Convert to payload paths for all tasks to avoid overwriting paths with signed URLs
+      const payload = updatedSigned.map(st => ({
+        ...st,
+        evidence_urls: st.id === subTaskId ? [...existingPaths, ...paths] : (subTaskEvidencePathsById[st.id] ?? []),
+      }));
+      void updateCAPA(capa!.id, { sub_tasks: payload as any[] });
     } else {
-      uploadCAPAEvidence(capa!.id, urls, user!.id);
+      void updateCAPA(capa!.id, { evidence_urls: [...capaEvidencePaths, ...paths] });
     }
-    
-    loadData();
+
+    await loadData();
     toast({ title: 'Evidence uploaded' });
   };
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_SIZE = 1200;
-          let { width, height } = img;
-          
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height = (height * MAX_SIZE) / width;
-              width = MAX_SIZE;
-            }
-          } else {
-            if (height > MAX_SIZE) {
-              width = (width * MAX_SIZE) / height;
-              height = MAX_SIZE;
-            }
-          }
-          
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleRemoveEvidence = (url: string) => {
-    removeCAPAEvidence(capa!.id, url, user!.id);
-    loadData();
+    if (!capa) return;
+    const index = (capa.evidence_urls || []).findIndex(u => u === url);
+    if (index === -1) return;
+
+    const nextPaths = capaEvidencePaths.filter((_, i) => i !== index);
+    void updateCAPA(capa.id, { evidence_urls: nextPaths });
+    void loadData();
   };
 
   const handleMarkPendingVerification = () => {
-    const result = markCAPAPendingVerification(capa!.id, user!.id);
-    if (result.success) {
-      loadData();
-      toast({ 
-        title: 'Submitted for verification', 
-        description: capa?.entity_type === 'supplier' 
-          ? 'The Audit Manager has been notified.'
-          : 'The Regional Manager has been notified.'
-      });
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    if (!canMarkPendingVerification()) {
+      toast({ title: 'Error', description: getVerificationDisabledReason(), variant: 'destructive' });
+      return;
     }
+
+    void updateCAPA(capa!.id, { status: 'pending_verification' });
+    void supabase.from('capa_activity').insert({
+      capa_id: capa!.id,
+      user_id: user!.id,
+      action: 'pending_verification',
+      details: `${userNameById(user!.id) || 'Manager'}: Marked as pending verification`,
+      created_at: new Date().toISOString(),
+    });
+    void loadData();
+    toast({ title: 'Submitted for verification' });
   };
 
   const handleResubmit = () => {
-    const result = resubmitCAPA(capa!.id, user!.id);
-    if (result.success) {
-      loadData();
-      toast({ title: 'Resubmitted for verification' });
-    } else {
-      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+    if (!canMarkPendingVerification()) {
+      toast({ title: 'Error', description: getVerificationDisabledReason(), variant: 'destructive' });
+      return;
     }
+
+    void updateCAPA(capa!.id, { status: 'pending_verification' });
+    void supabase.from('capa_activity').insert({
+      capa_id: capa!.id,
+      user_id: user!.id,
+      action: 'resubmitted',
+      details: `${userNameById(user!.id) || 'Manager'}: Reworked and resubmitted for verification`,
+      created_at: new Date().toISOString(),
+    });
+    void loadData();
+    toast({ title: 'Resubmitted for verification' });
   };
 
   const openLightbox = (images: string[], index: number = 0) => {
@@ -575,7 +654,7 @@ export default function CAPADetailPage() {
             ) : (
               <span className="text-muted-foreground">—</span>
             )}
-            <p className="text-sm mt-1">{finding?.description || 'No description'}</p>
+            <p className="text-sm mt-1">{finding?.description || capa.description || 'No description'}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Entity</p>
@@ -593,7 +672,7 @@ export default function CAPADetailPage() {
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Assigned To</p>
-            <p className="font-medium">{getUserById(capa.assigned_to)?.full_name || 'Unknown'}</p>
+            <p className="font-medium">{userNameById(capa.assigned_to) || 'Unknown'}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Due Date</p>
@@ -642,7 +721,7 @@ export default function CAPADetailPage() {
               <div className="flex gap-2 flex-wrap mt-2 mb-4">
                 {capa.evidence_urls?.map((url, idx) => (
                   <div key={idx} className="relative group">
-                    {url.startsWith('data:image') ? (
+                    {isImageUrl(url) ? (
                       <img
                         src={url}
                         alt={`Evidence ${idx + 1}`}
@@ -650,7 +729,11 @@ export default function CAPADetailPage() {
                         onClick={() => openLightbox(capa.evidence_urls || [], idx)}
                       />
                     ) : (
-                      <div className="w-20 h-20 bg-muted rounded flex items-center justify-center">
+                      <div
+                        className="w-20 h-20 bg-muted rounded flex items-center justify-center cursor-pointer hover:opacity-80"
+                        onClick={() => isPdfUrl(url) && window.open(url, '_blank')}
+                        title={isPdfUrl(url) ? 'Open PDF' : undefined}
+                      >
                         <FileText className="h-8 w-8 text-muted-foreground" />
                       </div>
                     )}
@@ -757,7 +840,7 @@ export default function CAPADetailPage() {
             ) : (
               <div className="space-y-3">
                 {capa.sub_tasks?.map(subTask => {
-                  const assignee = getUserById(subTask.assigned_to_user_id);
+                  const assigneeName = userNameById(subTask.assigned_to_user_id);
                   return (
                     <div 
                       key={subTask.id} 
@@ -776,7 +859,7 @@ export default function CAPADetailPage() {
                           <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <UserIcon className="h-3 w-3" />
-                              {assignee?.full_name || 'Unknown'}
+                              {assigneeName || 'Unknown'}
                             </span>
                             <span>
                               Added: {format(new Date(subTask.created_at), 'MMM d, yyyy')}
@@ -787,13 +870,24 @@ export default function CAPADetailPage() {
                           {subTask.evidence_urls.length > 0 && (
                             <div className="flex gap-2 mt-3">
                               {subTask.evidence_urls.map((url, idx) => (
-                                <img
-                                  key={idx}
-                                  src={url}
-                                  alt={`Evidence ${idx + 1}`}
-                                  className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80"
-                                  onClick={() => openLightbox(subTask.evidence_urls, idx)}
-                                />
+                                <div key={idx} className="w-12 h-12">
+                                  {isImageUrl(url) ? (
+                                    <img
+                                      src={url}
+                                      alt={`Evidence ${idx + 1}`}
+                                      className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80"
+                                      onClick={() => openLightbox(subTask.evidence_urls, idx)}
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-12 h-12 bg-muted rounded flex items-center justify-center cursor-pointer hover:opacity-80"
+                                      onClick={() => isPdfUrl(url) && window.open(url, '_blank')}
+                                      title={isPdfUrl(url) ? 'Open PDF' : undefined}
+                                    >
+                                      <FileText className="h-5 w-5 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           )}
@@ -830,24 +924,24 @@ export default function CAPADetailPage() {
             ) : (
               <div className="space-y-4">
                 {activities.map(activity => {
-                  const activityUser = activity.user_id === 'system' 
-                    ? null 
-                    : getUserById(activity.user_id);
+                  const activityUserName = activity.user_id === 'system'
+                    ? 'System'
+                    : userNameById(activity.user_id) || 'Unknown';
                   
                   return (
                     <div key={activity.id} className="flex items-start gap-3">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback className="text-xs">
-                          {activity.user_id === 'system' 
-                            ? 'SYS' 
-                            : activityUser?.full_name.split(' ').map(n => n[0]).join('').slice(0, 2) || '??'
+                          {activity.user_id === 'system'
+                            ? 'SYS'
+                            : activityUserName.split(' ').map(n => n[0]).join('').slice(0, 2) || '??'
                           }
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">
-                            {activity.user_id === 'system' ? 'System' : activityUser?.full_name || 'Unknown'}
+                            {activityUserName}
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}

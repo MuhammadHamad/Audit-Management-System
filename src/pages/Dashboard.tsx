@@ -4,6 +4,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RoleBadge } from '@/components/RoleBadge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   KPIGrid,
   CriticalAlertsStrip,
   HealthScoreHeatmap,
@@ -32,6 +39,7 @@ import { AuditorDashboard } from '@/components/dashboard/AuditorDashboard';
 export default function Dashboard() {
   const { user } = useAuth();
   const [filterNeedsAttention, setFilterNeedsAttention] = useState(false);
+  const [auditWindow, setAuditWindow] = useState<'30d' | '6m' | '1y'>('30d');
 
   if (!user) return null;
 
@@ -43,6 +51,8 @@ export default function Dashboard() {
         <AuditManagerDashboardView 
           filterNeedsAttention={filterNeedsAttention} 
           setFilterNeedsAttention={setFilterNeedsAttention} 
+          auditWindow={auditWindow}
+          setAuditWindow={setAuditWindow}
         />
       );
     
@@ -90,9 +100,16 @@ export default function Dashboard() {
 interface AuditManagerDashboardViewProps {
   filterNeedsAttention: boolean;
   setFilterNeedsAttention: (value: boolean) => void;
+  auditWindow: '30d' | '6m' | '1y';
+  setAuditWindow: (value: '30d' | '6m' | '1y') => void;
 }
 
-function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttention }: AuditManagerDashboardViewProps) {
+function AuditManagerDashboardView({
+  filterNeedsAttention,
+  setFilterNeedsAttention,
+  auditWindow,
+  setAuditWindow,
+}: AuditManagerDashboardViewProps) {
   // Fetch data using React Query hooks
   const { data: audits = [] } = useAudits();
   const { data: capas = [] } = useCAPAs();
@@ -103,10 +120,34 @@ function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttenti
   const { data: suppliers = [] } = useSuppliers();
   const { data: regions = [] } = useRegions();
 
+  const windowDays = useMemo(() => {
+    switch (auditWindow) {
+      case '6m':
+        return 180;
+      case '1y':
+        return 365;
+      case '30d':
+      default:
+        return 30;
+    }
+  }, [auditWindow]);
+
+  const windowLabel = useMemo(() => {
+    switch (auditWindow) {
+      case '6m':
+        return '6m';
+      case '1y':
+        return '1y';
+      case '30d':
+      default:
+        return '30d';
+    }
+  }, [auditWindow]);
+
   // Calculate dashboard data from fetched entities
   const kpiData = useMemo(() => 
-    calculateKPIData(audits, capas, findings, branches, bcks, suppliers),
-    [audits, capas, findings, branches, bcks, suppliers]
+    calculateKPIData(audits, capas, findings, branches, bcks, suppliers, { passRateDays: windowDays }),
+    [audits, capas, findings, branches, bcks, suppliers, windowDays]
   );
 
   const criticalAlerts = useMemo(() => 
@@ -136,13 +177,26 @@ function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttenti
 
   const auditorWorkload = useMemo(() => {
     const auditors = getUsersByRole('auditor');
-    return calculateAuditorWorkload(audits, auditors);
-  }, [audits]);
+    return calculateAuditorWorkload(audits, auditors, { completedWindowDays: windowDays });
+  }, [audits, windowDays]);
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <Select value={auditWindow} onValueChange={(v) => setAuditWindow(v as any)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Audit window" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="30d">Last 30 days</SelectItem>
+            <SelectItem value="6m">Last 6 months</SelectItem>
+            <SelectItem value="1y">Last 1 year</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Band 1: KPI Cards */}
-      <KPIGrid data={kpiData} />
+      <KPIGrid data={kpiData} passRateLabel={`Pass Rate (${windowLabel})`} />
 
       {/* Band 2: Critical Alerts Strip */}
       <CriticalAlertsStrip alerts={criticalAlerts} />
@@ -172,7 +226,7 @@ function AuditManagerDashboardView({ filterNeedsAttention, setFilterNeedsAttenti
       </div>
 
       {/* Band 5: Auditor Workload */}
-      <AuditorWorkloadTable auditors={auditorWorkload} />
+      <AuditorWorkloadTable auditors={auditorWorkload} completedLabel={`Completed (${windowLabel})`} />
     </div>
   );
 }
