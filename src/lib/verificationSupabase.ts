@@ -4,6 +4,7 @@ import type { CAPA, Finding } from '@/lib/auditExecutionStorage';
 import { fetchAuditsByStatus, updateAudit } from '@/lib/auditSupabase';
 import { createSignedAuditEvidenceUrl, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
 import { fetchBCKs, fetchBranches, fetchSuppliers, fetchUsers } from '@/lib/entitySupabase';
+import { insertNotifications } from '@/lib/notificationsSupabase';
 
 export interface VerificationQueueItem {
   audit: Audit;
@@ -209,6 +210,14 @@ export async function approveCAPA(capaId: string, verifierId: string): Promise<v
 }
 
 export async function rejectCAPA(capaId: string, verifierId: string, reason: string): Promise<void> {
+  const { data: capaRow, error: capaErr } = await supabase
+    .from('capa')
+    .select('id,capa_code,assigned_to')
+    .eq('id', capaId)
+    .maybeSingle();
+
+  if (capaErr) throw capaErr;
+
   const now = new Date().toISOString();
 
   const { error: updateErr } = await supabase
@@ -229,6 +238,24 @@ export async function rejectCAPA(capaId: string, verifierId: string, reason: str
     });
 
   if (activityErr) throw activityErr;
+
+  try {
+    const assignedTo = (capaRow as any)?.assigned_to as string | null | undefined;
+    const capaCode = (capaRow as any)?.capa_code as string | undefined;
+
+    if (assignedTo) {
+      await insertNotifications([
+        {
+          user_id: assignedTo,
+          type: 'capa_rejected',
+          message: `CAPA rejected\n${capaCode || 'A CAPA'} was rejected. Reason: ${reason}`,
+          link_to: `/capa/${capaId}`,
+        },
+      ]);
+    }
+  } catch (e) {
+    console.error('Failed to create rejection notification', e);
+  }
 }
 
 export async function approveAudit(auditId: string, verifierId: string): Promise<void> {
@@ -263,6 +290,35 @@ export async function approveAudit(auditId: string, verifierId: string): Promise
     );
 
   if (activityErr) throw activityErr;
+
+  try {
+    const { data: auditRow, error: auditErr } = await supabase
+      .from('audits')
+      .select('id,audit_code,auditor_id')
+      .eq('id', auditId)
+      .maybeSingle();
+
+    if (auditErr) throw auditErr;
+
+    const recipients = new Set<string>();
+    if ((auditRow as any)?.auditor_id) recipients.add((auditRow as any).auditor_id);
+    for (const c of capas) {
+      if ((c as any)?.assigned_to) recipients.add((c as any).assigned_to);
+    }
+
+    const auditCode = (auditRow as any)?.audit_code as string | undefined;
+
+    await insertNotifications(
+      Array.from(recipients).map(uid => ({
+        user_id: uid,
+        type: 'audit_approved',
+        message: `Audit approved\nAudit ${auditCode || ''} has been approved.`,
+        link_to: `/audits/${auditId}`,
+      }))
+    );
+  } catch (e) {
+    console.error('Failed to create audit approval notifications', e);
+  }
 }
 
 export async function rejectAudit(auditId: string, _verifierId: string, _reason: string): Promise<void> {

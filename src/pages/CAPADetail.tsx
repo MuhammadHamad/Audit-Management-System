@@ -55,6 +55,7 @@ import {
 } from '@/lib/verificationSupabase';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchUserAssignments, fetchUsers } from '@/lib/userStorage';
+import { fetchUserIdsByRole, insertNotification, insertNotifications } from '@/lib/notificationsSupabase';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
 
@@ -262,6 +263,14 @@ export default function CAPADetailPage() {
       details: `${userNameById(user!.id) || 'Manager'}: Sub-task added`,
       created_at: now,
     });
+
+    void insertNotification({
+      user_id: newSubTaskAssignee,
+      type: 'task_assigned',
+      message: `New task assigned\nYou have been assigned a new sub-task in ${capa!.capa_code}.`,
+      link_to: `/capa/${capa!.id}`,
+    });
+
     setNewSubTaskDescription('');
     setNewSubTaskAssignee('');
     setShowSubTaskForm(false);
@@ -357,6 +366,23 @@ export default function CAPADetailPage() {
       details: `${userNameById(user!.id) || 'Manager'}: Marked as pending verification`,
       created_at: new Date().toISOString(),
     });
+
+    void (async () => {
+      try {
+        const hoqUserIds = await fetchUserIdsByRole('audit_manager');
+        await insertNotifications(
+          hoqUserIds.map(uid => ({
+            user_id: uid,
+            type: 'capa_pending_verification',
+            message: `CAPA pending verification\n${capa!.capa_code} has been submitted for verification.`,
+            link_to: `/capa/${capa!.id}`,
+          }))
+        );
+      } catch (e) {
+        console.error('Failed to notify Head of Quality for verification', e);
+      }
+    })();
+
     void loadData();
     toast({ title: 'Submitted for verification' });
   };
@@ -375,6 +401,23 @@ export default function CAPADetailPage() {
       details: `${userNameById(user!.id) || 'Manager'}: Reworked and resubmitted for verification`,
       created_at: new Date().toISOString(),
     });
+
+    void (async () => {
+      try {
+        const hoqUserIds = await fetchUserIdsByRole('audit_manager');
+        await insertNotifications(
+          hoqUserIds.map(uid => ({
+            user_id: uid,
+            type: 'capa_resubmitted',
+            message: `CAPA resubmitted\n${capa!.capa_code} has been resubmitted for verification.`,
+            link_to: `/capa/${capa!.id}`,
+          }))
+        );
+      } catch (e) {
+        console.error('Failed to notify Head of Quality for resubmission', e);
+      }
+    })();
+
     void loadData();
     toast({ title: 'Resubmitted for verification' });
   };
@@ -412,26 +455,14 @@ export default function CAPADetailPage() {
     if (!capa || !isManager) return false;
     if (capa.status !== 'in_progress' && capa.status !== 'open') return false;
     
-    const subTasks = capa.sub_tasks || [];
-    if (subTasks.length > 0) {
-      const allCompleted = subTasks.every(st => st.status === 'completed');
-      if (!allCompleted) return false;
-    }
-    
     const capaEvidence = capa.evidence_urls || [];
-    const subTaskEvidence = subTasks.flatMap(st => st.evidence_urls);
-    return capaEvidence.length + subTaskEvidence.length > 0;
+    return capaEvidence.length > 0;
   };
 
   const getVerificationDisabledReason = () => {
     if (!capa) return '';
-    const subTasks = capa.sub_tasks || [];
-    if (subTasks.length > 0 && !subTasks.every(st => st.status === 'completed')) {
-      return 'All sub-tasks must be completed before submitting for verification.';
-    }
     const capaEvidence = capa.evidence_urls || [];
-    const subTaskEvidence = subTasks.flatMap(st => st.evidence_urls);
-    if (capaEvidence.length + subTaskEvidence.length === 0) {
+    if (capaEvidence.length === 0) {
       return 'Upload at least one piece of evidence before submitting.';
     }
     return '';
@@ -774,143 +805,7 @@ export default function CAPADetailPage() {
         </CardContent>
       </Card>
 
-      {/* Section C: Sub-Tasks (Branch/BCK Manager only, not for suppliers) */}
-      {!isAuditManager && capa.entity_type !== 'supplier' && (isManager || isReadOnly) && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Sub-Tasks</CardTitle>
-            {isManager && !isReadOnly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowSubTaskForm(!showSubTaskForm)}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add Sub-Task
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Add Sub-Task Form */}
-            {showSubTaskForm && isManager && (
-              <div className="p-4 border rounded-lg bg-muted/30 space-y-4">
-                <div>
-                  <Label htmlFor="subTaskDesc">Description</Label>
-                  <Input
-                    id="subTaskDesc"
-                    value={newSubTaskDescription}
-                    onChange={(e) => setNewSubTaskDescription(e.target.value)}
-                    placeholder="e.g. Recalibrate thermometer in kitchen"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label>Assign To</Label>
-                  <Select value={newSubTaskAssignee} onValueChange={setNewSubTaskAssignee}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select staff member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableStaff.length === 0 ? (
-                        <SelectItem value="__none__" disabled>No staff available</SelectItem>
-                      ) : (
-                        availableStaff.map(staff => (
-                          <SelectItem key={staff.id} value={staff.id}>
-                            {staff.full_name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleAddSubTask}>Add</Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowSubTaskForm(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Sub-Task List */}
-            {(capa.sub_tasks || []).length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                No sub-tasks assigned yet.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {capa.sub_tasks?.map(subTask => {
-                  const assigneeName = userNameById(subTask.assigned_to_user_id);
-                  return (
-                    <div 
-                      key={subTask.id} 
-                      className="p-4 border rounded-lg relative"
-                    >
-                      <div className="flex items-start gap-3">
-                        {subTask.status === 'completed' ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
-                        ) : subTask.status === 'in_progress' ? (
-                          <Clock className="h-5 w-5 text-blue-600 mt-0.5" />
-                        ) : (
-                          <Circle className="h-5 w-5 text-gray-400 mt-0.5" />
-                        )}
-                        <div className="flex-1">
-                          <p className="font-medium">{subTask.description}</p>
-                          <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <UserIcon className="h-3 w-3" />
-                              {assigneeName || 'Unknown'}
-                            </span>
-                            <span>
-                              Added: {format(new Date(subTask.created_at), 'MMM d, yyyy')}
-                            </span>
-                          </div>
-                          
-                          {/* Sub-task Evidence */}
-                          {subTask.evidence_urls.length > 0 && (
-                            <div className="flex gap-2 mt-3">
-                              {subTask.evidence_urls.map((url, idx) => (
-                                <div key={idx} className="w-12 h-12">
-                                  {isImageUrl(url) ? (
-                                    <img
-                                      src={url}
-                                      alt={`Evidence ${idx + 1}`}
-                                      className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80"
-                                      onClick={() => openLightbox(subTask.evidence_urls, idx)}
-                                    />
-                                  ) : (
-                                    <div
-                                      className="w-12 h-12 bg-muted rounded flex items-center justify-center cursor-pointer hover:opacity-80"
-                                      onClick={() => isPdfUrl(url) && window.open(url, '_blank')}
-                                      title={isPdfUrl(url) ? 'Open PDF' : undefined}
-                                    >
-                                      <FileText className="h-5 w-5 text-muted-foreground" />
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Delete button for pending sub-tasks */}
-                        {isManager && !isReadOnly && subTask.status === 'pending' && (
-                          <button
-                            onClick={() => setDeleteSubTaskId(subTask.id)}
-                            className="text-muted-foreground hover:text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Sub-Tasks section hidden for demo — department handles corrective actions directly */}
 
       {/* Section D: Activity Log */}
       {!isStaff && (
@@ -960,21 +855,6 @@ export default function CAPADetailPage() {
         </Card>
       )}
 
-      {/* Delete Sub-Task Confirmation */}
-      <AlertDialog open={!!deleteSubTaskId} onOpenChange={() => setDeleteSubTaskId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Sub-Task?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the sub-task. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSubTask}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Lightbox */}
       <EvidenceLightbox

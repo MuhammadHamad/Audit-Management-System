@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const notificationsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Fetch user profile from database
   const fetchUserProfile = async (userId: string): Promise<User | null> => {
@@ -132,6 +133,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error loading notifications:', error);
     }
   };
+
+  useEffect(() => {
+    const userId = user?.id;
+
+    if (!userId) {
+      if (notificationsChannelRef.current) {
+        supabase.removeChannel(notificationsChannelRef.current);
+        notificationsChannelRef.current = null;
+      }
+      return;
+    }
+
+    if (notificationsChannelRef.current) {
+      supabase.removeChannel(notificationsChannelRef.current);
+      notificationsChannelRef.current = null;
+    }
+
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void loadNotifications(userId);
+        }
+      )
+      .subscribe();
+
+    notificationsChannelRef.current = channel;
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (notificationsChannelRef.current === channel) {
+        notificationsChannelRef.current = null;
+      }
+    };
+  }, [user?.id]);
 
   // Track whether initial hydration is complete to avoid loading flash on token refresh
   const initialLoadDone = useRef(false);

@@ -15,6 +15,7 @@ import {
   calculateDueDate,
 } from '@/lib/auditExecutionStorage';
 import { fetchAuditById, updateAudit } from '@/lib/auditSupabase';
+import { fetchUserIdsByRole, insertNotifications } from '@/lib/notificationsSupabase';
 import { 
   createSignedAuditEvidenceUrl,
   fetchAuditResults,
@@ -699,6 +700,45 @@ export function useAuditExecution(auditId: string) {
       });
 
       await insertCAPAs(capasToInsert);
+
+      // Notifications (in-app)
+      try {
+        const hoqUserIds = await fetchUserIdsByRole('audit_manager');
+        const auditMsg = `Audit submitted\nAudit ${audit.audit_code} has been submitted and is pending verification.`;
+        const capaMsg = `CAPA created\n${capasToInsert.length} CAPA item(s) were generated for audit ${audit.audit_code}.`;
+
+        const rows = [
+          ...hoqUserIds.map((uid) => ({
+            user_id: uid,
+            type: 'audit_submitted',
+            message: auditMsg,
+            link_to: `/audits/${audit.id}/verify`,
+          })),
+          ...capasToInsert
+            .map((c) => c.assigned_to)
+            .filter((uid): uid is string => !!uid)
+            .map((uid) => ({
+              user_id: uid,
+              type: 'capa_assigned',
+              message: capaMsg,
+              link_to: `/capa`,
+            })),
+        ];
+
+        // De-dupe by user_id + type + link
+        const keySet = new Set<string>();
+        const deduped = rows.filter((r) => {
+          const key = `${r.user_id}:${r.type}:${r.link_to ?? ''}:${r.message}`;
+          if (keySet.has(key)) return false;
+          keySet.add(key);
+          return true;
+        });
+
+        await insertNotifications(deduped);
+      } catch (e) {
+        // Notifications should not block audit submission
+        console.error('Failed to create notifications for submission', e);
+      }
 
       setSubmittedFindings(findingsToInsert);
       setSubmittedCAPAs(capasToInsert as any);

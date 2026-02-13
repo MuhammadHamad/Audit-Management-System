@@ -38,7 +38,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserRole, Region, Branch, BCK } from '@/types';
-import { getUserByEmail, getRegions, getBranches, getBCKs, createUser, createAssignment } from '@/lib/userStorage';
+import { getUserByEmail, getRegions, getBranches, getBCKs, createAssignment } from '@/lib/userStorage';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 const roleOptions: { value: UserRole; label: string }[] = [
@@ -56,6 +57,7 @@ const rolesRequiringAssignment: UserRole[] = ['regional_manager', 'auditor', 'br
 const formSchema = z.object({
   full_name: z.string().min(1, 'Full name is required').max(100),
   email: z.string().email('Invalid email format').max(255),
+  password: z.string().min(6, 'Password must be at least 6 characters').max(128),
   phone: z.string().optional(),
   role: z.enum(['super_admin', 'audit_manager', 'regional_manager', 'auditor', 'branch_manager', 'bck_manager', 'staff']),
   assigned_id: z.string().optional(),
@@ -81,6 +83,7 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
     defaultValues: {
       full_name: '',
       email: '',
+      password: '',
       phone: '',
       role: undefined,
       assigned_id: '',
@@ -128,24 +131,32 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
   };
 
   const onSubmit = async (data: FormData) => {
-    // Check for duplicate email
-    if (getUserByEmail(data.email)) {
-      form.setError('email', { message: 'This email is already registered.' });
-      return;
-    }
-
     setIsSubmitting(true);
 
     try {
-      const user = await createUser({
-        email: data.email,
-        full_name: data.full_name,
-        phone: data.phone || undefined,
-        role: data.role,
+      // Call the secure RPC to create both Auth user and public.users row
+      const { data: result, error } = await (supabase as any).rpc('create_user_with_auth', {
+        _email: data.email,
+        _password: data.password,
+        _full_name: data.full_name,
+        _phone: data.phone || null,
+        _role: data.role,
+        _status: 'active',
       });
 
-      if (!user) {
-        toast.error('Failed to create user. Please try again.');
+      if (error) {
+        toast.error(error.message || 'Failed to create user.');
+        return;
+      }
+
+      if (!result || result.length === 0) {
+        toast.error('Unexpected error: No response from server.');
+        return;
+      }
+
+      const { success, message, user_id } = result[0];
+      if (!success) {
+        form.setError('email', { message });
         return;
       }
 
@@ -155,7 +166,7 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
         const selected = options.find(o => o.id === data.assigned_id);
         if (selected) {
           await createAssignment({
-            user_id: user.id,
+            user_id,
             assigned_type: selected.type,
             assigned_id: selected.id,
           });
@@ -166,8 +177,9 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
       form.reset();
       onOpenChange(false);
       onSuccess();
-    } catch {
-      toast.error('Failed to create user. Please try again.');
+    } catch (err: any) {
+      console.error('Create user error:', err);
+      toast.error(err?.message || 'Failed to create user. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -213,6 +225,20 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
                   <FormLabel>Email *</FormLabel>
                   <FormControl>
                     <Input type="email" placeholder="e.g. ahmed@burgerizzr.sa" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password *</FormLabel>
+                  <FormControl>
+                    <Input type="password" placeholder="Min 6 characters" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
