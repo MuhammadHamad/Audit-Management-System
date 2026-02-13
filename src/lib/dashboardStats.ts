@@ -109,7 +109,6 @@ export interface AuditorWorkloadItem {
   inProgress: number;
   submitted: number;
   completed30d: number;
-  workloadScore: number;
 }
 
 // ============= KPI CALCULATIONS =============

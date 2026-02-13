@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AppHeader } from '@/components/AppHeader';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ChatWidget } from '@/components/chat/ChatWidget';
 
 export function AppLayout() {
   const isMobile = useIsMobile();
@@ -18,6 +19,8 @@ export function AppLayout() {
           <Outlet />
         </div>
       </main>
+
+      <ChatWidget />
     </div>
   );
 }
