@@ -684,14 +684,6 @@ export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({
   auditors,
   completedLabel = 'Completed (30d)',
 }) => {
-  const maxWorkload = 10;
-
-  const getWorkloadColor = (score: number) => {
-    if (score >= 9) return 'bg-red-500';
-    if (score >= 6) return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
-
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
@@ -716,7 +708,6 @@ export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">In Progress</th>
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">Submitted</th>
                   <th className="text-center py-3 px-2 font-medium text-muted-foreground">{completedLabel}</th>
-                  <th className="text-left py-3 px-2 font-medium text-muted-foreground w-40">Workload</th>
                 </tr>
               </thead>
               <tbody>
@@ -734,22 +725,6 @@ export const AuditorWorkloadTable: React.FC<AuditorWorkloadTableProps> = ({
                     <td className="text-center py-3 px-2">{auditor.inProgress}</td>
                     <td className="text-center py-3 px-2">{auditor.submitted}</td>
                     <td className="text-center py-3 px-2">{auditor.completed30d}</td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-28 h-2 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className={cn('h-full rounded-full transition-all', getWorkloadColor(auditor.workloadScore))}
-                            style={{ width: `${Math.min(100, (auditor.workloadScore / maxWorkload) * 100)}%` }}
-                          />
-                        </div>
-                        <span className={cn(
-                          'text-xs font-medium',
-                          auditor.workloadScore >= 9 && 'text-red-500'
-                        )}>
-                          {auditor.workloadScore}
-                        </span>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>

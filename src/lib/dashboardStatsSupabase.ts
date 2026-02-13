@@ -423,8 +423,6 @@ export const calculateAuditorWorkload = (
       new Date(a.completed_at) >= completedWindowStart
     ).length;
 
-    const workloadScore = (scheduled * 1) + (inProgress * 2) + (submitted * 1.5);
-
     return {
       id: auditor.id,
       name: auditor.full_name,
@@ -433,7 +431,6 @@ export const calculateAuditorWorkload = (
       inProgress,
       submitted,
       completed30d,
-      workloadScore,
     };
-  }).sort((a, b) => b.workloadScore - a.workloadScore);
+  });
 };
