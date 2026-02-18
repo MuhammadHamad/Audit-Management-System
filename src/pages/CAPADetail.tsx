@@ -126,6 +126,7 @@ export default function CAPADetailPage() {
       try {
         return await createSignedAuditEvidenceUrls(paths);
       } catch {
+        console.warn('Failed to sign evidence paths; falling back to original paths');
         return paths;
       }
     }
@@ -642,15 +643,37 @@ export default function CAPADetailPage() {
               <Label className="mb-2 block">Evidence</Label>
               {staffSubTask.evidence_urls.length > 0 && (
                 <div className="flex gap-2 flex-wrap mb-2">
-                  {staffSubTask.evidence_urls.map((url, idx) => (
-                    <img
-                      key={idx}
-                      src={url}
-                      alt={`Evidence ${idx + 1}`}
-                      className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
-                      onClick={() => openLightbox(staffSubTask.evidence_urls, idx)}
-                    />
-                  ))}
+                  {staffSubTask.evidence_urls.map((url, idx) => {
+                    if (isImageUrl(url)) {
+                      const images = staffSubTask.evidence_urls.filter(isImageUrl);
+                      const imageIndex = images.indexOf(url);
+                      return (
+                        <img
+                          key={idx}
+                          src={url}
+                          alt={`Evidence ${idx + 1}`}
+                          className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
+                          onClick={() => openLightbox(images, Math.max(0, imageIndex))}
+                        />
+                      );
+                    }
+
+                    if (isPdfUrl(url)) {
+                      return (
+                        <a
+                          key={idx}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          View PDF {idx + 1}
+                        </a>
+                      );
+                    }
+
+                    return null;
+                  })}
                 </div>
               )}
               {staffSubTask.status !== 'completed' && (

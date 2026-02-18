@@ -2,7 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Audit } from '@/lib/auditStorage';
 import type { CAPA, Finding, SubTask, CAPAStatus, CAPAPriority } from '@/lib/auditExecutionStorage';
 import { fetchAuditsByStatus, updateAudit } from '@/lib/auditSupabase';
-import { createSignedAuditEvidenceUrl, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
+import { createSignedAuditEvidenceUrls, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
 import { 
   fetchBCKs, 
   fetchBranches, 
@@ -728,9 +728,14 @@ export async function signAuditEvidencePaths(paths: string[]): Promise<string[]>
   const unique = Array.from(new Set(paths.filter(Boolean)));
   if (unique.length === 0) return [];
 
-  const signed = await Promise.all(unique.map(async p => ({ p, url: await createSignedAuditEvidenceUrl(p) })));
-  const map = new Map(signed.map(s => [s.p, s.url] as const));
-  return paths.map(p => map.get(p) || p);
+  try {
+    const signed = await createSignedAuditEvidenceUrls(unique);
+    const map = new Map(unique.map((p, i) => [p, signed[i] || p] as const));
+    return paths.map(p => map.get(p) || p);
+  } catch (e) {
+    console.warn('Failed to sign audit evidence paths; returning original paths', e);
+    return paths;
+  }
 }
 
 export async function fetchVerificationDetailData(auditId: string): Promise<{

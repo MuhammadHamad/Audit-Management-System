@@ -133,7 +133,7 @@ export async function createSignedCAPAEvidenceUrls(paths: string[]): Promise<str
 
   if (error) throw error;
   if (!data) throw new Error('Failed to create signed URLs');
-  return data.map(d => d.signedUrl);
+  return data.map((d: any, i: number) => d?.signedUrl || paths[i]);
 }
 
 export async function createSignedCAPAEvidenceUrl(path: string): Promise<string> {
@@ -390,7 +390,7 @@ export async function createSignedAuditEvidenceUrls(paths: string[]): Promise<st
 
   if (error) throw error;
   if (!data) throw new Error('Failed to create signed URLs');
-  return data.map(d => d.signedUrl);
+  return data.map((d: any, i: number) => d?.signedUrl || paths[i]);
 }
 
 export async function createSignedAuditEvidenceUrl(path: string): Promise<string> {

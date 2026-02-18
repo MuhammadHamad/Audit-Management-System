@@ -11,7 +11,8 @@ import {
   User,
   AlertTriangle,
   Clock,
-  FileText
+  FileText,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,6 +70,7 @@ import { getUsers } from '@/lib/userStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fetchTemplateById } from '@/lib/templateSupabase';
+import { buildCAPAExportBundle, exportCAPAReportToExcel, openCAPAReportPrintView } from '@/lib/capaExport';
 
 interface ChecklistItemDisplay {
   id: string;
@@ -138,6 +140,22 @@ export default function VerificationDetail() {
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [auditResults, setAuditResults] = useState<AuditResult[]>([]);
   const [evidenceByItemId, setEvidenceByItemId] = useState<Map<string, string[]>>(new Map());
+  const [isExportingCapaId, setIsExportingCapaId] = useState<string | null>(null);
+
+  const canExportReport = ['head_of_quality', 'audit_manager', 'super_admin'].includes(user?.role || '');
+
+  const getBundleQueryKey = (capaId: string) => ['capaExportBundle', capaId] as const;
+
+  const getOrFetchExportBundle = async (capaId: string) => {
+    const key = getBundleQueryKey(capaId);
+    const cached = queryClient.getQueryData<any>(key);
+    if (cached) return cached;
+    return queryClient.fetchQuery({
+      queryKey: key,
+      queryFn: () => buildCAPAExportBundle(capaId),
+      staleTime: 2 * 60 * 1000,
+    });
+  };
 
   const templateQuery = useQuery({
     queryKey: ['template', audit?.template_id],
@@ -164,8 +182,72 @@ export default function VerificationDetail() {
     return () => window.clearTimeout(t);
   }, [from]);
 
+  useEffect(() => {
+    if (!canExportReport) return;
+    if (!capas.length) return;
+
+    let cancelled = false;
+    const ids = capas.map((c) => c.id);
+
+    const concurrency = 3;
+
+    const run = async () => {
+      for (let i = 0; i < ids.length; i += concurrency) {
+        if (cancelled) return;
+        const batch = ids.slice(i, i + concurrency);
+        const tasks = batch.map((capaId) =>
+          queryClient.prefetchQuery({
+            queryKey: getBundleQueryKey(capaId),
+            queryFn: () => buildCAPAExportBundle(capaId),
+            staleTime: 2 * 60 * 1000,
+          })
+        );
+        await Promise.allSettled(tasks);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [canExportReport, capas, queryClient]);
+
   const signCAPAEvidencePaths = async (paths: string[]): Promise<string[]> => {
     return createSignedCAPAEvidenceUrls(paths).catch(() => createSignedAuditEvidenceUrls(paths)).catch(() => paths);
+  };
+
+  const handleExportCAPAExcel = async (capaId: string) => {
+    if (!canExportReport) return;
+    if (isExportingCapaId) return;
+
+    setIsExportingCapaId(capaId);
+    try {
+      const bundle = await getOrFetchExportBundle(capaId);
+      exportCAPAReportToExcel(bundle);
+      toast({ title: 'Exported', description: 'Excel report downloaded.' });
+    } catch (e: any) {
+      console.error('CAPA export (excel) failed', e);
+      toast({ title: 'Error', description: e?.message || 'Failed to export Excel report', variant: 'destructive' });
+    } finally {
+      setIsExportingCapaId(null);
+    }
+  };
+
+  const handleExportCAPAPdf = async (capaId: string) => {
+    if (!canExportReport) return;
+    if (isExportingCapaId) return;
+
+    setIsExportingCapaId(capaId);
+    try {
+      const bundle = await getOrFetchExportBundle(capaId);
+      openCAPAReportPrintView(bundle);
+      toast({ title: 'Report opened', description: 'Use your browser Print → Save as PDF.' });
+    } catch (e: any) {
+      console.error('CAPA export (pdf) failed', e);
+      toast({ title: 'Error', description: e?.message || 'Failed to open PDF report', variant: 'destructive' });
+    } finally {
+      setIsExportingCapaId(null);
+    }
   };
 
   const loadData = async () => {
@@ -719,26 +801,25 @@ export default function VerificationDetail() {
       {/* Section C: Findings & CAPA Review */}
       <Card id="findings-section">
         <CardHeader>
-          <CardTitle>Findings & CAPA Review</CardTitle>
+          <CardTitle>Findings &amp; CAPA Review</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           {findings.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">No findings for this audit.</p>
           ) : (
-            findings.map(finding => {
+            findings.map((finding) => {
               const capa = capas.find(c => c.finding_id === finding.id);
               const activities = capa ? capaActivities[capa.id] || [] : [];
               const decision = capa ? capaDecisions[capa.id] : undefined;
               const today = new Date().toISOString().split('T')[0];
-              const isOverdue = capa && capa.due_date < today && capa.status !== 'closed';
-              const hasEvidence = capa && capa.evidence_urls && capa.evidence_urls.length > 0;
+              const isOverdue = !!capa && capa.due_date < today && capa.status !== 'closed';
+              const hasEvidence = !!capa && (capa.evidence_urls?.length || 0) > 0;
               const isAutoApproved = activities.some(a => a.action === 'auto_approved');
-              
+
               return (
                 <div key={finding.id} className="border rounded-lg overflow-hidden">
-                  {/* Finding Header */}
                   <div className="p-4 bg-muted/30">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-2 mb-2">
                           <Badge className={getSeverityBadge(finding.severity)}>
@@ -751,6 +832,7 @@ export default function VerificationDetail() {
                           Section: {finding.section_name} • Category: {finding.category}
                         </p>
                       </div>
+
                       {finding.evidence_urls && finding.evidence_urls.length > 0 && (
                         <div className="flex gap-2">
                           {finding.evidence_urls.slice(0, 2).map((url, idx) => (
@@ -766,35 +848,72 @@ export default function VerificationDetail() {
                       )}
                     </div>
                   </div>
-                  
-                  {/* CAPA Block */}
-                  {capa && (
-                    <div className="p-4 border-t">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-mono text-sm">{capa.capa_code}</span>
-                          <Badge className={getCAPAStatusBadge(decision === 'approved' ? 'closed' : decision === 'rejected' ? 'rejected' : capa.status)}>
-                            {isAutoApproved ? 'Auto-approved' : 
-                             decision === 'approved' ? 'Approved' : 
-                             decision === 'rejected' ? 'Rejected' : 
-                             capa.status.replace('_', ' ')}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          <div className="flex items-center gap-1">
-                            <User className="h-4 w-4 text-muted-foreground" />
-                            <span>{getUserName(capa.assigned_to)}</span>
+
+                  {capa ? (
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold">{capa.capa_code}</h4>
+                            <Badge className={
+                              decision === 'approved' ? 'bg-green-100 text-green-800' :
+                              decision === 'rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }>
+                              {decision === 'approved' ? 'Approved' :
+                              decision === 'rejected' ? 'Rejected' :
+                              capa.status.replace('_', ' ')}
+                            </Badge>
                           </div>
-                          <div className={`flex items-center gap-1 ${isOverdue ? 'text-red-600' : ''}`}>
-                            <Clock className="h-4 w-4" />
-                            <span>Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}</span>
-                            {isOverdue && <AlertTriangle className="h-4 w-4" />}
+
+                          <div className="flex items-center gap-4 text-sm">
+                            <div className="flex items-center gap-1">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span>{getUserName(capa.assigned_to)}</span>
+                            </div>
+                            <div className={`flex items-center gap-1 ${isOverdue ? 'text-red-600' : ''}`}>
+                              <Clock className="h-4 w-4" />
+                              <span>Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}</span>
+                              {isOverdue && <AlertTriangle className="h-4 w-4" />}
+                            </div>
                           </div>
                         </div>
+
+                        {canExportReport && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void handleExportCAPAPdf(capa.id);
+                              }}
+                              disabled={isExportingCapaId === capa.id}
+                            >
+                              <FileText className="h-4 w-4 mr-2" />
+                              Export PDF
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void handleExportCAPAExcel(capa.id);
+                              }}
+                              disabled={isExportingCapaId === capa.id}
+                            >
+                              <FileSpreadsheet className="h-4 w-4 mr-2" />
+                              Export Excel
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      
-                      <div className="space-y-4">
+
+                      <div className="mt-4 space-y-4">
                         <div>
                           <p className="text-sm font-medium mb-1">Corrective Action Taken:</p>
                           <p className="text-sm text-muted-foreground">
@@ -808,8 +927,7 @@ export default function VerificationDetail() {
                             {capa.description || '—'}
                           </p>
                         </div>
-                        
-                        {/* CAPA Evidence */}
+
                         {capa.evidence_urls && capa.evidence_urls.length > 0 ? (
                           <div>
                             <p className="text-sm font-medium mb-2">CAPA Evidence:</p>
@@ -833,8 +951,7 @@ export default function VerificationDetail() {
                             </p>
                           </div>
                         )}
-                        
-                        {/* Activity Log */}
+
                         {activities.length > 0 && (
                           <div>
                             <p className="text-sm font-medium mb-2">Activity Log:</p>
@@ -852,8 +969,7 @@ export default function VerificationDetail() {
                             </div>
                           </div>
                         )}
-                        
-                        {/* Action Buttons */}
+
                         {!isAutoApproved && capa.status === 'pending_verification' && decision === 'pending' && (
                           <div className="pt-4 border-t">
                             {inlineRejectCapaId === capa.id ? (
@@ -879,7 +995,7 @@ export default function VerificationDetail() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() => handleInlineRejectCAPA(capa.id)}
+                                    onClick={() => void handleInlineRejectCAPA(capa.id)}
                                   >
                                     Submit Rejection
                                   </Button>
@@ -890,7 +1006,7 @@ export default function VerificationDetail() {
                                 <Button
                                   size="sm"
                                   className="bg-green-600 hover:bg-green-700"
-                                  onClick={() => handleApproveCAPA(capa.id)}
+                                  onClick={() => void handleApproveCAPA(capa.id)}
                                   disabled={!hasEvidence}
                                 >
                                   <Check className="h-4 w-4 mr-1" />
@@ -909,38 +1025,35 @@ export default function VerificationDetail() {
                             )}
                           </div>
                         )}
-                        
-                        {/* Show approved/rejected state */}
+
                         {decision === 'approved' && !isAutoApproved && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-green-100 text-green-800">
-                              ✓ Approved
-                            </Badge>
+                            <Badge className="bg-green-100 text-green-800">✓ Approved</Badge>
                           </div>
                         )}
-                        
+
                         {decision === 'rejected' && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-red-100 text-red-800">
-                              ✗ Rejected
-                            </Badge>
+                            <Badge className="bg-red-100 text-red-800">✗ Rejected</Badge>
                             <p className="text-sm text-muted-foreground mt-2">
                               {activities.find(a => a.action === 'rejected')?.details}
                             </p>
                           </div>
                         )}
-                        
+
                         {isAutoApproved && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-green-100 text-green-800">
-                              ✓ Auto-approved
-                            </Badge>
+                            <Badge className="bg-green-100 text-green-800">✓ Auto-approved</Badge>
                             <p className="text-sm text-muted-foreground mt-1">
                               {capa.priority} severity with evidence uploaded
                             </p>
                           </div>
                         )}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 text-sm text-muted-foreground">
+                      No CAPA created for this finding.
                     </div>
                   )}
                 </div>

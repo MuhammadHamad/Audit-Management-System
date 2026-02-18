@@ -43,13 +43,13 @@ AS $$
     SELECT 1
     FROM public.user_roles
     WHERE user_id = _user_id
-      AND role IN ('super_admin', 'audit_manager')
+      AND role::text IN ('super_admin', 'audit_manager', 'head_of_quality')
   )
   OR EXISTS (
     SELECT 1
     FROM public.users
     WHERE id = _user_id
-      AND role IN ('super_admin', 'audit_manager')
+      AND role IN ('super_admin', 'audit_manager', 'head_of_quality')
   )
 $$;
 

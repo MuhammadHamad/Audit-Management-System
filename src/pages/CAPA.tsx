@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -75,12 +75,18 @@ export default function CAPAPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isRunningEscalation, setIsRunningEscalation] = useState(false);
 
   const isStaff = user?.role === 'staff';
   const isManager = ['branch_manager', 'bck_manager', 'head_of_quality', 'audit_manager', 'area_manager', 'regional_operational_manager', 'national_operational_manager'].includes(user?.role || '');
   const isReadOnly = ['regional_manager', 'super_admin'].includes(user?.role || '');
+  const canFilterEntityType = user?.role === 'head_of_quality' || user?.role === 'audit_manager';
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [entityTypeFilter]);
 
   const maintenanceAccessQuery = useQuery({
     queryKey: ['dept_member', 'maintenance', user?.id],
@@ -197,7 +203,7 @@ export default function CAPAPage() {
     } else if (user?.role === 'bck_manager') {
       filteredCapas = capas.filter(c => c.entity_type === 'bck');
     } else if (user?.role === 'head_of_quality' || user?.role === 'audit_manager') {
-      filteredCapas = capas.filter(c => c.entity_type === 'supplier' || c.status === 'escalated');
+      filteredCapas = capas;
     } else if (user?.role === 'area_manager' || user?.role === 'regional_operational_manager' || user?.role === 'national_operational_manager') {
       filteredCapas = capas.filter(c => c.assigned_to === user.id);
     } else if (user?.role === 'regional_manager') {
@@ -284,6 +290,10 @@ export default function CAPAPage() {
       ) {
         return false;
       }
+    }
+
+    if (canFilterEntityType && entityTypeFilter !== 'all' && item.capa.entity_type !== entityTypeFilter) {
+      return false;
     }
 
     // Status filter
@@ -493,6 +503,26 @@ export default function CAPAPage() {
             className="pl-10"
           />
         </div>
+
+        {!showStaffTasksTable && canFilterEntityType && (
+          <Select
+            value={entityTypeFilter}
+            onValueChange={(value) => {
+              setEntityTypeFilter(value);
+            }}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="All Entities" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entities</SelectItem>
+              <SelectItem value="branch">Branch</SelectItem>
+              <SelectItem value="bck">BCK</SelectItem>
+              <SelectItem value="supplier">Supplier</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="All Statuses" />

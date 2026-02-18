@@ -51,10 +51,94 @@ type ExportBundle = {
   signedAuditEvidenceByItemId: Record<string, string[]>;
 };
 
+const setCell = (ws: XLSX.WorkSheet, r: number, c: number, v: any, s?: any) => {
+  const addr = XLSX.utils.encode_cell({ r, c });
+  const cell: any = { v, t: typeof v === 'number' ? 'n' : 's' };
+  if (s) cell.s = s;
+  ws[addr] = cell;
+};
+
+const applyWsStyles = (ws: XLSX.WorkSheet, styles: Array<{ r: number; c: number; s: any }>) => {
+  for (const it of styles) {
+    const addr = XLSX.utils.encode_cell({ r: it.r, c: it.c });
+    const cell: any = ws[addr];
+    if (!cell) continue;
+    cell.s = { ...(cell.s || {}), ...(it.s || {}) };
+  }
+};
+
+const sTitle = {
+  font: { bold: true, sz: 16, color: { rgb: '0F172A' } },
+  alignment: { horizontal: 'left', vertical: 'center' },
+} as const;
+
+const sMeta = {
+  font: { sz: 11, color: { rgb: '475569' } },
+  alignment: { horizontal: 'left', vertical: 'center' },
+} as const;
+
+const sSection = {
+  font: { bold: true, sz: 12, color: { rgb: '0F172A' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'F1F5F9' } },
+  border: {
+    bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    right: { style: 'thin', color: { rgb: 'CBD5E1' } },
+  },
+  alignment: { horizontal: 'left', vertical: 'center' },
+} as const;
+
+const sKey = {
+  font: { bold: true, sz: 11, color: { rgb: '334155' } },
+  alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+} as const;
+
+const sVal = {
+  font: { sz: 11, color: { rgb: '0F172A' } },
+  alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+} as const;
+
+const sHeader = {
+  font: { bold: true, sz: 11, color: { rgb: '0F172A' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'F8FAFC' } },
+  border: {
+    bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+    right: { style: 'thin', color: { rgb: 'CBD5E1' } },
+  },
+  alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+} as const;
+
+const sCell = {
+  font: { sz: 11, color: { rgb: '0F172A' } },
+  border: {
+    bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+    left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+    right: { style: 'thin', color: { rgb: 'E2E8F0' } },
+  },
+  alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+} as const;
+
 const isLikelyStoragePath = (s: string): boolean => {
   if (!s) return false;
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:')) return false;
   return true;
+};
+
+const isSafeHttpUrl = (s: string): boolean => {
+  if (!s) return false;
+  if (s.startsWith('http://') || s.startsWith('https://')) return true;
+  if (s.startsWith('data:image/')) return true;
+  return false;
+};
+
+const isImageUrl = (url: string): boolean => {
+  if (!url) return false;
+  if (url.startsWith('data:image/')) return true;
+  const base = url.split('?')[0].toLowerCase();
+  return base.endsWith('.jpg') || base.endsWith('.jpeg') || base.endsWith('.png') || base.endsWith('.gif') || base.endsWith('.webp');
 };
 
 const trySignEvidencePaths = async (paths: string[]): Promise<string[]> => {
@@ -65,6 +149,7 @@ const trySignEvidencePaths = async (paths: string[]): Promise<string[]> => {
     try {
       return await createSignedAuditEvidenceUrls(paths);
     } catch {
+      console.warn('Failed to sign evidence paths; falling back to original paths');
       return paths;
     }
   }
@@ -248,122 +333,196 @@ export function exportCAPAReportToExcel(bundle: ExportBundle): void {
 
   const wb = XLSX.utils.book_new();
 
-  const overviewRows = [
-    {
-      field: 'CAPA Code',
-      value: capa.capa_code,
-    },
-    {
-      field: 'Status',
-      value: capa.status,
-    },
-    {
-      field: 'Priority',
-      value: capa.priority,
-    },
-    {
-      field: 'Entity',
-      value: entityInfo ? `${entityInfo.code} - ${entityInfo.name} (${entityInfo.type})` : '',
-    },
-    {
-      field: 'Due Date',
-      value: capa.due_date,
-    },
-    {
-      field: 'Assigned To',
-      value: userNameById(capa.assigned_to),
-    },
-    {
-      field: 'Created At',
-      value: formatDate(capa.created_at),
-    },
-    {
-      field: 'Updated At',
-      value: formatDate(capa.updated_at),
-    },
-    {
-      field: 'Description',
-      value: capa.description,
-    },
-    {
-      field: 'Corrective Action Taken',
-      value: capa.notes || '',
-    },
+  const title = `CAPA Report${capa?.capa_code ? ` - ${capa.capa_code}` : ''}`;
+  const generatedAt = new Date().toLocaleString();
+
+  const capaInfoAoA: any[][] = [
+    [title],
+    [`Generated: ${generatedAt}`],
+    [],
+    ['CAPA Information', ''],
+    ['CAPA Code', capa.capa_code || ''],
+    ['Status', capa.status || ''],
+    ['Priority', capa.priority || ''],
+    ['Entity', entityInfo ? `${entityInfo.code} - ${entityInfo.name} (${entityInfo.type})` : ''],
+    ['Due Date', capa.due_date || ''],
+    ['Assigned To', userNameById(capa.assigned_to)],
+    ['Created At', formatDate(capa.created_at)],
+    ['Updated At', formatDate(capa.updated_at)],
+    [],
+    ['CAPA Requirement', ''],
+    [capa.description || '—'],
+    [],
+    ['Corrective Action Taken', ''],
+    [capa.notes || '—'],
   ];
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(overviewRows), 'CAPA');
+  const capaWs = XLSX.utils.aoa_to_sheet(capaInfoAoA);
+  capaWs['!cols'] = [{ wch: 26 }, { wch: 92 }];
+  capaWs['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
+    { s: { r: 13, c: 0 }, e: { r: 13, c: 1 } },
+    { s: { r: 14, c: 0 }, e: { r: 14, c: 1 } },
+    { s: { r: 16, c: 0 }, e: { r: 16, c: 1 } },
+    { s: { r: 17, c: 0 }, e: { r: 17, c: 1 } },
+  ];
 
-  const auditRows = audit
-    ? [
-        {
-          audit_code: audit.audit_code,
-          status: audit.status,
-          scheduled_date: audit.scheduled_date,
-          started_at: audit.started_at || '',
-          completed_at: audit.completed_at || '',
-          score: audit.score ?? '',
-          pass_fail: audit.pass_fail ?? '',
-          auditor: userNameById(audit.auditor_id),
-          template_id: audit.template_id,
-        },
-      ]
-    : [];
+  applyWsStyles(capaWs, [
+    { r: 0, c: 0, s: sTitle },
+    { r: 1, c: 0, s: sMeta },
+    { r: 3, c: 0, s: sSection },
+    { r: 13, c: 0, s: sSection },
+    { r: 16, c: 0, s: sSection },
+    ...Array.from({ length: 8 }).flatMap((_, i) => [
+      { r: 4 + i, c: 0, s: sKey },
+      { r: 4 + i, c: 1, s: sVal },
+    ]),
+    { r: 14, c: 0, s: sVal },
+    { r: 17, c: 0, s: sVal },
+  ]);
+  XLSX.utils.book_append_sheet(wb, capaWs, 'CAPA');
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(auditRows), 'Audit');
+  const auditAoA: any[][] = [
+    ['Audit Summary', ''],
+    ['Audit Code', audit?.audit_code || ''],
+    ['Status', audit?.status || ''],
+    ['Scheduled Date', audit?.scheduled_date || ''],
+    ['Started At', audit?.started_at || ''],
+    ['Completed At', audit?.completed_at || ''],
+    ['Score', audit?.score ?? ''],
+    ['Pass/Fail', audit?.pass_fail ?? ''],
+    ['Auditor', userNameById(audit?.auditor_id)],
+    ['Template', audit?.template_id || ''],
+  ];
+  const auditWs = XLSX.utils.aoa_to_sheet(auditAoA);
+  auditWs['!cols'] = [{ wch: 26 }, { wch: 92 }];
+  auditWs['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
+  applyWsStyles(auditWs, [
+    { r: 0, c: 0, s: sSection },
+    ...Array.from({ length: 9 }).flatMap((_, i) => [
+      { r: 1 + i, c: 0, s: sKey },
+      { r: 1 + i, c: 1, s: sVal },
+    ]),
+  ]);
+  XLSX.utils.book_append_sheet(wb, auditWs, 'Audit');
 
-  const findingRows = finding
-    ? [
-        {
-          finding_code: finding.finding_code,
-          severity: finding.severity,
-          status: finding.status,
-          section_name: finding.section_name,
-          category: finding.category,
-          description: finding.description,
-        },
-      ]
-    : [];
+  const findingAoA: any[][] = [
+    ['Finding Summary', ''],
+    ['Finding Code', finding?.finding_code || ''],
+    ['Severity', finding?.severity || ''],
+    ['Status', finding?.status || ''],
+    ['Section', finding?.section_name || ''],
+    ['Category', finding?.category || ''],
+    [],
+    ['Description', ''],
+    [finding?.description || '—'],
+  ];
+  const findingWs = XLSX.utils.aoa_to_sheet(findingAoA);
+  findingWs['!cols'] = [{ wch: 26 }, { wch: 92 }];
+  findingWs['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    { s: { r: 7, c: 0 }, e: { r: 7, c: 1 } },
+    { s: { r: 8, c: 0 }, e: { r: 8, c: 1 } },
+  ];
+  applyWsStyles(findingWs, [
+    { r: 0, c: 0, s: sSection },
+    ...Array.from({ length: 5 }).flatMap((_, i) => [
+      { r: 1 + i, c: 0, s: sKey },
+      { r: 1 + i, c: 1, s: sVal },
+    ]),
+    { r: 7, c: 0, s: sSection },
+    { r: 8, c: 0, s: sVal },
+  ]);
+  XLSX.utils.book_append_sheet(wb, findingWs, 'Finding');
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(findingRows), 'Finding');
+  const checklistHeader = ['Section', 'Item', 'Response', 'Points Earned', 'Max Points', 'Evidence Count'];
+  const checklistAoA: any[][] = [checklistHeader];
+  for (const r of auditResults || []) {
+    const meta = findTemplateItem(templateSections, (r as any).section_id, (r as any).item_id);
+    checklistAoA.push([
+      meta.sectionName,
+      meta.itemText,
+      formatResponse((r as any).response),
+      (r as any).points_earned ?? '',
+      meta.maxPoints ?? '',
+      Array.isArray((r as any).evidence_urls) ? (r as any).evidence_urls.length : 0,
+    ]);
+  }
+  const checklistWs = XLSX.utils.aoa_to_sheet(checklistAoA);
+  checklistWs['!cols'] = [{ wch: 22 }, { wch: 70 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+  checklistWs['!freeze'] = { xSplit: 0, ySplit: 1 } as any;
+  applyWsStyles(checklistWs, [
+    ...checklistHeader.map((_, c) => ({ r: 0, c, s: sHeader })),
+  ]);
+  XLSX.utils.book_append_sheet(wb, checklistWs, 'Checklist');
 
-  const checklistRows = (auditResults || []).map((r: any) => {
-    const meta = findTemplateItem(templateSections, r.section_id, r.item_id);
-    return {
-      section: meta.sectionName,
-      item: meta.itemText,
-      response: formatResponse(r.response),
-      points_earned: r.points_earned ?? '',
-      max_points: meta.maxPoints ?? '',
-      evidence_count: Array.isArray(r.evidence_urls) ? r.evidence_urls.length : 0,
-    };
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checklistRows), 'Checklist');
+  const evidenceHeader = ['Type', 'Reference', '#', 'URL'];
+  const evidenceAoA: any[][] = [evidenceHeader];
 
-  const evidenceRows: Array<{ type: string; item_id?: string; url: string }> = [];
-
+  let idx = 1;
   for (const url of bundle.signedCapaEvidenceUrls || []) {
-    evidenceRows.push({ type: 'CAPA', url });
+    evidenceAoA.push(['CAPA', capa.capa_code || '', idx, url]);
+    idx += 1;
   }
 
+  idx = 1;
   for (const url of bundle.signedFindingEvidenceUrls || []) {
-    evidenceRows.push({ type: 'Finding', url });
+    evidenceAoA.push(['Finding', finding?.finding_code || '', idx, url]);
+    idx += 1;
   }
 
-  for (const [itemId, urls] of Object.entries(bundle.signedAuditEvidenceByItemId || {})) {
+  const auditEntries = Object.entries(bundle.signedAuditEvidenceByItemId || {});
+  for (const [itemId, urls] of auditEntries) {
+    let i = 1;
     for (const url of urls) {
-      evidenceRows.push({ type: 'Audit Item', item_id: itemId, url });
+      evidenceAoA.push(['Audit Item', itemId, i, url]);
+      i += 1;
     }
   }
+  const evidenceWs = XLSX.utils.aoa_to_sheet(evidenceAoA);
+  evidenceWs['!cols'] = [{ wch: 14 }, { wch: 22 }, { wch: 6 }, { wch: 100 }];
+  evidenceWs['!freeze'] = { xSplit: 0, ySplit: 1 } as any;
+  applyWsStyles(evidenceWs, [
+    ...evidenceHeader.map((_, c) => ({ r: 0, c, s: sHeader })),
+  ]);
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(evidenceRows), 'Evidence');
+  for (let r = 1; r < evidenceAoA.length; r += 1) {
+    const url = String(evidenceAoA[r][3] || '');
+    setCell(evidenceWs, r, 3, url, {
+      ...sCell,
+      font: { ...sCell.font, color: { rgb: '2563EB' }, underline: true },
+    });
 
-  const activityRows = (activities || []).map((a: any) => ({
-    created_at: a.created_at ? formatDate(a.created_at) : '',
-    action: a.action || '',
-    user: userNameById(a.user_id),
-    details: a.details || '',
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(activityRows), 'Activity');
+    const addr = XLSX.utils.encode_cell({ r, c: 3 });
+    const cell: any = evidenceWs[addr];
+    if (cell && url) {
+      cell.l = { Target: url, Tooltip: url };
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, evidenceWs, 'Evidence');
+
+  const activityHeader = ['Date', 'Action', 'User', 'Details'];
+  const activityAoA: any[][] = [activityHeader];
+  (activities || [])
+    .slice()
+    .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    .forEach((a: any) => {
+      activityAoA.push([
+        a.created_at ? formatDate(a.created_at) : '',
+        a.action || '',
+        userNameById(a.user_id),
+        a.details || '',
+      ]);
+    });
+  const activityWs = XLSX.utils.aoa_to_sheet(activityAoA);
+  activityWs['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 80 }];
+  activityWs['!freeze'] = { xSplit: 0, ySplit: 1 } as any;
+  applyWsStyles(activityWs, [
+    ...activityHeader.map((_, c) => ({ r: 0, c, s: sHeader })),
+  ]);
+  XLSX.utils.book_append_sheet(wb, activityWs, 'Activity');
 
   const filename = `${capa.capa_code || 'CAPA'}_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, filename);
@@ -373,37 +532,56 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
   const { capa, audit, finding, entityInfo, auditResults, activities, userNameById } = bundle;
   const templateSections = extractTemplateSections(bundle.template);
 
-  const checklistHtml = (auditResults || [])
+  const checklistTableRows = (auditResults || [])
     .map((r: any) => {
       const meta = findTemplateItem(templateSections, r.section_id, r.item_id);
-      const evidence = (bundle.signedAuditEvidenceByItemId?.[r.item_id] || [])
-        .slice(0, 6)
-        .map((u) => `<img class="thumb" src="${escapeHtml(u)}" alt="evidence" />`)
-        .join('');
-
+      const pts = `${String(r.points_earned ?? '')}${meta.maxPoints != null ? ` / ${String(meta.maxPoints)}` : ''}`;
       return `
-        <div class="row">
-          <div class="row-head">
-            <div class="sec">${escapeHtml(meta.sectionName)}</div>
-            <div class="pts">${escapeHtml(String(r.points_earned ?? ''))}${meta.maxPoints != null ? ` / ${escapeHtml(String(meta.maxPoints))}` : ''}</div>
-          </div>
-          <div class="item">${escapeHtml(meta.itemText)}</div>
-          <div class="meta">Response: <b>${escapeHtml(formatResponse(r.response))}</b></div>
-          ${evidence ? `<div class="grid">${evidence}</div>` : ''}
-        </div>
+        <tr>
+          <td class="td sec">${escapeHtml(meta.sectionName)}</td>
+          <td class="td item">${escapeHtml(meta.itemText)}</td>
+          <td class="td resp">${escapeHtml(formatResponse(r.response))}</td>
+          <td class="td pts">${escapeHtml(pts)}</td>
+          <td class="td ev">${escapeHtml(String(Array.isArray(r.evidence_urls) ? r.evidence_urls.length : 0))}</td>
+        </tr>
       `;
     })
     .join('');
 
   const capaEvidenceHtml = (bundle.signedCapaEvidenceUrls || [])
+    .filter((u) => isSafeHttpUrl(u) && isImageUrl(u))
     .slice(0, 12)
     .map((u) => `<img class="thumb" src="${escapeHtml(u)}" alt="capa-evidence" />`)
     .join('');
 
   const findingEvidenceHtml = (bundle.signedFindingEvidenceUrls || [])
+    .filter((u) => isSafeHttpUrl(u) && isImageUrl(u))
     .slice(0, 12)
     .map((u) => `<img class="thumb" src="${escapeHtml(u)}" alt="finding-evidence" />`)
     .join('');
+
+  const auditEvidenceBlocksHtml = (auditResults || [])
+    .map((r: any) => {
+      const urls = (bundle.signedAuditEvidenceByItemId?.[r.item_id] || [])
+        .filter((u) => isSafeHttpUrl(u) && isImageUrl(u))
+        .slice(0, 10);
+      if (!urls.length) return '';
+      const meta = findTemplateItem(templateSections, r.section_id, r.item_id);
+      const imgs = urls.map((u) => `<img class="thumb" src="${escapeHtml(u)}" alt="audit-evidence" />`).join('');
+      return `
+        <div class="ev-block">
+          <div class="ev-title">
+            <span class="ev-sec">${escapeHtml(meta.sectionName)}</span>
+            <span class="ev-item">${escapeHtml(meta.itemText)}</span>
+          </div>
+          <div class="grid">${imgs}</div>
+        </div>
+      `;
+    })
+    .filter(Boolean)
+    .join('');
+
+  const hasAuditorEvidence = Boolean(findingEvidenceHtml) || Boolean(auditEvidenceBlocksHtml);
 
   const activityHtml = (activities || [])
     .slice()
@@ -428,110 +606,267 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <title>${escapeHtml(capa.capa_code || 'CAPA Report')}</title>
         <style>
-          :root { --muted: #64748b; --border: #e2e8f0; }
-          body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; color: #0f172a; }
-          h1 { font-size: 20px; margin: 0 0 8px; }
-          h2 { font-size: 14px; margin: 22px 0 10px; }
+          :root {
+            --bg: #ffffff;
+            --text: #0f172a;
+            --muted: #64748b;
+            --border: #e2e8f0;
+            --soft: #f8fafc;
+            --accent: #0ea5e9;
+            --shadow: 0 10px 30px rgba(2, 6, 23, 0.06);
+          }
+          * { box-sizing: border-box; }
+          body {
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            margin: 0;
+            background: linear-gradient(180deg, #f1f5f9 0%, #ffffff 45%, #ffffff 100%);
+            color: var(--text);
+          }
+          .page {
+            padding: 26px 28px;
+            max-width: 980px;
+            margin: 0 auto;
+          }
+          .topbar {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: linear-gradient(180deg, #ffffff, var(--soft));
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+          }
+          .topbar:before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent), #22c55e);
+          }
+          .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .brand .title { font-size: 20px; font-weight: 800; letter-spacing: 0.2px; }
+          .brand .subtitle { font-size: 12px; color: var(--muted); }
+          .codepill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 999px;
+            font-size: 12px;
+            color: var(--muted);
+          }
+          .codepill b { color: var(--text); font-weight: 800; }
+          h2 { font-size: 12px; margin: 18px 0 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
           .muted { color: var(--muted); font-size: 12px; }
-          .card { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }
-          .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .card {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+            margin: 10px 0;
+            background: #fff;
+            box-shadow: var(--shadow);
+          }
+          .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
           .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px; font-size: 12px; }
           .kv div { padding: 3px 0; }
-          .k { color: var(--muted); }
-          .row { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; break-inside: avoid; }
-          .row-head { display: flex; justify-content: space-between; gap: 10px; }
-          .sec { font-size: 12px; color: var(--muted); }
-          .pts { font-size: 12px; color: var(--muted); }
-          .item { font-size: 13px; margin-top: 4px; }
-          .meta { font-size: 12px; margin-top: 6px; }
-          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
-          .thumb { width: 100%; height: 110px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+          .k {
+            color: var(--muted);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+          }
+          .details { font-size: 13px; margin-top: 6px; white-space: pre-wrap; line-height: 1.55; }
+          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+          .thumb { width: 100%; height: 132px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); background: var(--soft); }
+          .ev-block { margin-top: 12px; break-inside: avoid; }
+          .ev-title { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: baseline; }
+          .ev-sec { color: var(--muted); font-weight: 800; letter-spacing: 0.02em; font-size: 12px; }
+          .ev-item { color: var(--text); font-weight: 700; font-size: 12px; }
+          .table { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
+          .th {
+            text-align: left;
+            font-size: 11px;
+            color: var(--muted);
+            background: var(--soft);
+            padding: 10px 10px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+          }
+          .td {
+            font-size: 12px;
+            padding: 10px 10px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+          }
+          tr:last-child .td { border-bottom: 0; }
+          .td.sec { width: 18%; color: var(--muted); }
+          .td.item { width: 44%; }
+          .td.resp { width: 16%; }
+          .td.pts { width: 12%; text-align: right; white-space: nowrap; }
+          .td.ev { width: 10%; text-align: right; white-space: nowrap; }
           .activity { border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 10px; break-inside: avoid; }
           .activity-top { display: flex; justify-content: space-between; gap: 10px; }
-          .details { font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
-          @media print { body { margin: 0.4in; } .card { break-inside: avoid; } }
+          .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--muted);
+            background: #fff;
+            font-weight: 700;
+          }
+          @media print {
+            @page { margin: 0.45in; }
+            body { background: #fff; }
+            .page { padding: 0; max-width: none; margin: 0; }
+            .card { break-inside: avoid; }
+            .topbar { break-inside: avoid; }
+          }
         </style>
       </head>
       <body>
-        <div class="muted">Generated ${escapeHtml(new Date().toLocaleString())}</div>
-        <h1>CAPA Report: ${escapeHtml(capa.capa_code || '')}</h1>
-        <div class="card">
-          <div class="grid2">
-            <div class="kv">
-              <div class="k">Entity</div>
-              <div>${escapeHtml(entityInfo ? `${entityInfo.code} - ${entityInfo.name} (${entityInfo.type})` : '')}</div>
-
-              <div class="k">Status</div>
-              <div>${escapeHtml(capa.status || '')}</div>
-
-              <div class="k">Priority</div>
-              <div>${escapeHtml(capa.priority || '')}</div>
-
-              <div class="k">Due Date</div>
-              <div>${escapeHtml(capa.due_date || '')}</div>
-
-              <div class="k">Assigned To</div>
-              <div>${escapeHtml(userNameById(capa.assigned_to))}</div>
+        <div class="page">
+          <div class="topbar">
+            <div class="brand">
+              <div class="title">CAPA Report</div>
+              <div class="subtitle">Generated ${escapeHtml(new Date().toLocaleString())}</div>
             </div>
-            <div class="kv">
-              <div class="k">Audit Code</div>
-              <div>${escapeHtml(audit?.audit_code || '')}</div>
+            <div class="codepill">CAPA: <b>${escapeHtml(capa.capa_code || '')}</b></div>
+          </div>
 
-              <div class="k">Audit Status</div>
-              <div>${escapeHtml(audit?.status || '')}</div>
+          <div class="card">
+            <div class="grid2">
+              <div class="kv">
+                <div class="k">Entity</div>
+                <div>${escapeHtml(entityInfo ? `${entityInfo.code} - ${entityInfo.name} (${entityInfo.type})` : '')}</div>
 
-              <div class="k">Auditor</div>
-              <div>${escapeHtml(userNameById(audit?.auditor_id))}</div>
+                <div class="k">Status</div>
+                <div><span class="badge">${escapeHtml(capa.status || '')}</span></div>
 
-              <div class="k">Score</div>
-              <div>${escapeHtml(audit?.score != null ? String(audit.score) : '')}</div>
+                <div class="k">Priority</div>
+                <div><span class="badge">${escapeHtml(capa.priority || '')}</span></div>
 
-              <div class="k">Pass/Fail</div>
-              <div>${escapeHtml(audit?.pass_fail || '')}</div>
+                <div class="k">Due Date</div>
+                <div>${escapeHtml(capa.due_date || '')}</div>
+
+                <div class="k">Assigned To</div>
+                <div>${escapeHtml(userNameById(capa.assigned_to))}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Audit Code</div>
+                <div>${escapeHtml(audit?.audit_code || '')}</div>
+
+                <div class="k">Audit Status</div>
+                <div><span class="badge">${escapeHtml(audit?.status || '')}</span></div>
+
+                <div class="k">Auditor</div>
+                <div>${escapeHtml(userNameById(audit?.auditor_id))}</div>
+
+                <div class="k">Score</div>
+                <div>${escapeHtml(audit?.score != null ? String(audit.score) : '')}</div>
+
+                <div class="k">Pass/Fail</div>
+                <div><span class="badge">${escapeHtml(audit?.pass_fail || '')}</span></div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <h2>CAPA Details</h2>
-        <div class="card">
-          <div class="muted">Description</div>
-          <div class="details">${escapeHtml(capa.description || '')}</div>
-          <div style="height:10px"></div>
-          <div class="muted">Corrective Action Taken</div>
-          <div class="details">${escapeHtml(capa.notes || '')}</div>
-        </div>
-
-        ${finding ? `
-          <h2>Finding</h2>
+          <h2>CAPA Details</h2>
           <div class="card">
-            <div class="kv">
-              <div class="k">Finding Code</div>
-              <div>${escapeHtml(finding.finding_code || '')}</div>
-              <div class="k">Severity</div>
-              <div>${escapeHtml(finding.severity || '')}</div>
-              <div class="k">Section</div>
-              <div>${escapeHtml(finding.section_name || '')}</div>
-              <div class="k">Category</div>
-              <div>${escapeHtml(finding.category || '')}</div>
-            </div>
+            <div class="muted">Requirement</div>
+            <div class="details">${escapeHtml(capa.description || '')}</div>
             <div style="height:10px"></div>
-            <div class="details">${escapeHtml(finding.description || '')}</div>
-            ${findingEvidenceHtml ? `<div class="grid" style="margin-top:12px">${findingEvidenceHtml}</div>` : ''}
+            <div class="muted">Corrective Action Taken</div>
+            <div class="details">${escapeHtml(capa.notes || '')}</div>
           </div>
-        ` : ''}
 
-        ${capaEvidenceHtml ? `
-          <h2>CAPA Evidence</h2>
+          ${finding ? `
+            <h2>Finding</h2>
+            <div class="card">
+              <div class="kv">
+                <div class="k">Finding Code</div>
+                <div>${escapeHtml(finding.finding_code || '')}</div>
+                <div class="k">Severity</div>
+                <div><span class="badge">${escapeHtml(finding.severity || '')}</span></div>
+                <div class="k">Section</div>
+                <div>${escapeHtml(finding.section_name || '')}</div>
+                <div class="k">Category</div>
+                <div>${escapeHtml(finding.category || '')}</div>
+              </div>
+              <div style="height:10px"></div>
+              <div class="details">${escapeHtml(finding.description || '')}</div>
+            </div>
+          ` : ''}
+
+          ${hasAuditorEvidence ? `
+            <h2>Auditor Evidence</h2>
+            <div class="card">
+              <div class="muted">Evidence captured during audit (before corrective action).</div>
+              ${findingEvidenceHtml ? `
+                <div style="height:10px"></div>
+                <div class="ev-block">
+                  <div class="ev-title">
+                    <span class="ev-sec">Finding</span>
+                    <span class="ev-item">${escapeHtml(finding?.description || '')}</span>
+                  </div>
+                  <div class="grid">${findingEvidenceHtml}</div>
+                </div>
+              ` : ''}
+              ${auditEvidenceBlocksHtml ? `
+                <div style="height:10px"></div>
+                ${auditEvidenceBlocksHtml}
+              ` : ''}
+              ${!findingEvidenceHtml && !auditEvidenceBlocksHtml ? '<div class="muted">No auditor evidence available.</div>' : ''}
+            </div>
+          ` : ''}
+
+          ${capaEvidenceHtml ? `
+            <h2>Corrective Action Evidence (Manager)</h2>
+            <div class="card">
+              <div class="muted">Evidence uploaded after corrective action was completed.</div>
+              <div style="height:10px"></div>
+              <div class="grid">${capaEvidenceHtml}</div>
+            </div>
+          ` : ''}
+
+          <h2>Audit Checklist</h2>
           <div class="card">
-            <div class="grid">${capaEvidenceHtml}</div>
+            ${checklistTableRows
+              ? `
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th class="th">Section</th>
+                      <th class="th">Item</th>
+                      <th class="th">Response</th>
+                      <th class="th" style="text-align:right">Points</th>
+                      <th class="th" style="text-align:right">Evidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${checklistTableRows}
+                  </tbody>
+                </table>
+              `
+              : '<div class="muted">No audit results available.</div>'}
           </div>
-        ` : ''}
 
-        <h2>Audit Checklist</h2>
-        <div class="card">${checklistHtml || '<div class="muted">No audit results available.</div>'}</div>
-
-        <h2>Activity</h2>
-        <div class="card">${activityHtml || '<div class="muted">No activity log.</div>'}</div>
+          <h2>Activity</h2>
+          <div class="card">${activityHtml || '<div class="muted">No activity log.</div>'}</div>
 
         <script>
           (function() {
@@ -546,12 +881,19 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             });
           })();
         </script>
+        </div>
       </body>
     </html>
   `;
 
-  const w = window.open('', '_blank', 'noopener,noreferrer');
+  const w = window.open('', '_blank');
   if (!w) throw new Error('Popup blocked');
+  try {
+    // Ensure security without breaking document access for writing content
+    (w as any).opener = null;
+  } catch {
+    // ignore
+  }
   w.document.open();
   w.document.write(html);
   w.document.close();

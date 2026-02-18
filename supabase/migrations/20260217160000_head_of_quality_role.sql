@@ -15,14 +15,6 @@ ALTER TABLE public.users
     'national_operational_manager'
   ));
 
-UPDATE public.user_roles
-SET role = 'head_of_quality'
-WHERE role = 'audit_manager';
-
-UPDATE public.users
-SET role = 'head_of_quality'
-WHERE role = 'audit_manager';
-
 CREATE OR REPLACE FUNCTION public.is_admin(_user_id UUID)
 RETURNS BOOLEAN
 LANGUAGE sql

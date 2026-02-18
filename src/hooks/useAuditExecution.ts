@@ -95,6 +95,7 @@ export function useAuditExecution(auditId: string) {
 
   // Load audit, template, and existing results
   useEffect(() => {
+    let cancelled = false;
     const loadAudit = async () => {
       setIsLoading(true);
       try {
@@ -110,6 +111,8 @@ export function useAuditExecution(auditId: string) {
         ]);
 
         if (!loadedTemplate) return;
+
+        if (cancelled) return;
 
         setAudit(loadedAudit);
         setTemplate(loadedTemplate);
@@ -159,6 +162,8 @@ export function useAuditExecution(auditId: string) {
           }
         }
 
+        if (cancelled) return;
+
         setItemStates(statesMap);
         lastSavedSignatureRef.current = buildDraftSignature(statesMap);
 
@@ -168,24 +173,31 @@ export function useAuditExecution(auditId: string) {
             fetchFindingsByAuditId(loadedAudit.id),
             fetchCAPAsByAuditId(loadedAudit.id),
           ]);
-          setSubmittedFindings(dbFindings);
-          setSubmittedCAPAs(dbCapas);
+          if (!cancelled) {
+            setSubmittedFindings(dbFindings);
+            setSubmittedCAPAs(dbCapas);
+          }
         }
 
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     loadAudit();
+    return () => {
+      cancelled = true;
+    };
   }, [auditId]);
 
-  const markAuditInProgressIfNeeded = useCallback(() => {
+  const markAuditInProgressIfNeeded = useCallback(async () => {
     if (!auditId) return;
     if (!audit) return;
     if (audit.status !== 'scheduled') return;
 
     const startedAt = audit.started_at ?? new Date().toISOString();
+
+    const prevAudit = audit;
 
     setAudit(prev => prev ? {
       ...prev,
@@ -193,11 +205,16 @@ export function useAuditExecution(auditId: string) {
       started_at: startedAt,
     } : null);
 
-    void updateAudit(auditId, {
-      status: 'in_progress',
-      started_at: startedAt,
-    });
-    void queryClient.invalidateQueries({ queryKey: ['audits'] });
+    try {
+      await updateAudit(auditId, {
+        status: 'in_progress',
+        started_at: startedAt,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['audits'] });
+    } catch (e) {
+      console.error('Failed to mark audit in progress', e);
+      setAudit((cur) => (cur?.id === prevAudit.id ? prevAudit : cur));
+    }
   }, [audit, auditId, queryClient]);
 
   // Update item response
@@ -218,7 +235,7 @@ export function useAuditExecution(auditId: string) {
     });
 
     if (response?.value !== null) {
-      markAuditInProgressIfNeeded();
+      void markAuditInProgressIfNeeded();
     }
   }, [markAuditInProgressIfNeeded]);
 
