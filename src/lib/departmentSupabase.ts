@@ -109,18 +109,79 @@ export async function updateMemberRole(
 
 /** Get user IDs of all members in a department (by slug). */
 export async function fetchDepartmentUserIds(slug: string): Promise<string[]> {
+  try {
+    const { data, error } = await db.rpc('get_department_user_ids', {
+      _dept_slug: slug,
+    });
+
+    if (!error) {
+      return (data ?? []) as string[];
+    }
+  } catch {
+    // Fall back below
+  }
+
   const members = await fetchDepartmentMembersBySlug(slug);
   return members.map(m => m.user_id);
 }
 
 /** Get user IDs of department heads only (by slug). */
 export async function fetchDepartmentHeadIds(slug: string): Promise<string[]> {
-  const members = await fetchDepartmentMembersBySlug(slug);
-  return members.filter(m => m.role_in_dept === 'head').map(m => m.user_id);
+  try {
+    const { data, error } = await db.rpc('get_department_head_user_ids', {
+      _dept_slug: slug,
+    });
+
+    if (!error) {
+      return (data ?? []) as string[];
+    }
+  } catch {
+    // Fall back below
+  }
+
+  try {
+    const members = await fetchDepartmentMembersBySlug(slug);
+    return members.filter(m => m.role_in_dept === 'head').map(m => m.user_id);
+  } catch {
+    return [];
+  }
 }
 
 /** Get the department ID by slug (cached-friendly). */
 export async function getDepartmentId(slug: string): Promise<string | null> {
   const dept = await fetchDepartmentBySlug(slug);
   return dept?.id ?? null;
+}
+
+export async function getEntityManagerId(
+  entityType: 'branch' | 'bck' | 'supplier',
+  entityId: string
+): Promise<string | null> {
+  if (entityType !== 'branch' && entityType !== 'bck') return null;
+
+  try {
+    const { data, error } = await db.rpc('get_entity_manager_id', {
+      _entity_type: entityType,
+      _entity_id: entityId,
+    });
+
+    if (error) throw error;
+    return (data as string | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function isDepartmentMember(userId: string, slug: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.rpc('is_department_member', {
+      _user_id: userId,
+      _dept_slug: slug,
+    });
+
+    if (error) throw error;
+    return !!data;
+  } catch {
+    return false;
+  }
 }

@@ -18,8 +18,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, Pencil, UserX, UserCheck, KeyRound, Trash2 } from 'lucide-react';
 import { User } from '@/types';
-import { updateUser, deleteUser } from '@/lib/userStorage';
+import { updateUser } from '@/lib/userStorage';
 import { supabase } from '@/integrations/supabase/client';
+import { getAdminClient } from '@/integrations/supabase/adminClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 interface UserActionsMenuProps {
@@ -29,12 +31,15 @@ interface UserActionsMenuProps {
 }
 
 export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProps) {
+  const { user: currentUser } = useAuth();
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
 
   const isActive = user.status === 'active';
-  const canDelete = !user.last_login_at;
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  // Super admins can delete any user except themselves; others can only delete users who never logged in
+  const canDelete = isSuperAdmin ? user.id !== currentUser?.id : !user.last_login_at;
 
   const handleToggleStatus = async () => {
     const newStatus = isActive ? 'inactive' : 'active';
@@ -45,14 +50,87 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
   };
 
   const handleDelete = async () => {
-    const success = await deleteUser(user.id);
-    if (success) {
+    try {
+      const adminClient = getAdminClient();
+      if (!adminClient) {
+        toast.error('Service role key is not configured. Cannot delete users.');
+        return;
+      }
+
+      // Step 1: Nullify FK references so the user row can be deleted
+      try {
+        await (supabase as any).rpc('cleanup_user_references', { _user_id: user.id });
+      } catch {
+        // RPC may not exist yet or may fail — fall back to admin client cleanup below
+      }
+
+      // Step 2: Nullify FK references via admin client (bypasses RLS, handles cases RPC missed)
+      const tables: { table: string; column: string }[] = [
+        { table: 'regions', column: 'manager_id' },
+        { table: 'branches', column: 'manager_id' },
+        { table: 'bcks', column: 'manager_id' },
+        { table: 'audit_plans', column: 'assigned_auditor_id' },
+        { table: 'audit_plans', column: 'created_by' },
+        { table: 'audits', column: 'auditor_id' },
+        { table: 'audits', column: 'created_by' },
+        { table: 'audit_templates', column: 'created_by' },
+        { table: 'capa', column: 'assigned_to' },
+        { table: 'capa_activity', column: 'user_id' },
+        { table: 'incidents', column: 'assigned_to' },
+        { table: 'incidents', column: 'created_by' },
+        { table: 'audit_logs', column: 'user_id' },
+      ];
+
+      await Promise.allSettled(
+        tables.map(({ table, column }) =>
+          adminClient
+            .from(table)
+            .update({ [column]: null })
+            .eq(column, user.id)
+            .then(({ error }) => {
+              if (error && !error.message.includes('column') && !error.message.includes('relation')) {
+                console.warn(`Cleanup failed for ${table}.${column}:`, error);
+              }
+            })
+        )
+      );
+
+      // Step 3: Delete owned rows via admin client
+      const ownedTables = ['notifications', 'user_assignments', 'department_members', 'user_roles'];
+      await Promise.allSettled(
+        ownedTables.map(table =>
+          adminClient
+            .from(table)
+            .delete()
+            .eq('user_id', user.id)
+        )
+      );
+
+      // Step 4: Delete public.users row via admin client (bypasses RLS)
+      const { error: deleteError } = await adminClient
+        .from('users')
+        .delete()
+        .eq('id', user.id);
+
+      if (deleteError) {
+        toast.error(deleteError.message || 'Failed to delete user profile.');
+        return;
+      }
+
+      // Step 5: Delete Auth user via admin API (best-effort)
+      try {
+        await adminClient.auth.admin.deleteUser(user.id);
+      } catch {
+        // Auth user may not exist (e.g. manually added to public.users only)
+      }
+
       toast.success(`User ${user.full_name} deleted`);
+      setShowDeleteDialog(false);
       onRefresh();
-    } else {
-      toast.error('Cannot delete this user');
+    } catch (err: any) {
+      console.error('Delete user error:', err);
+      toast.error(err?.message || 'Failed to delete user. Please try again.');
     }
-    setShowDeleteDialog(false);
   };
 
   const handleResetPassword = async () => {
@@ -144,7 +222,7 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {user.full_name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete {user.full_name}. This action cannot be undone.
+              This will permanently delete {user.full_name} and all their associated data. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

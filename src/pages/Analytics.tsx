@@ -3,9 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Table,
@@ -26,12 +24,8 @@ import {
   XAxis, 
   YAxis, 
   CartesianGrid, 
-  ResponsiveContainer,
   LineChart,
   Line,
-  Legend,
-  Tooltip,
-  Cell,
 } from 'recharts';
 import {
   Building2,
@@ -43,8 +37,8 @@ import {
   TrendingDown,
   Calendar,
   Award,
-  Star,
   Medal,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -57,6 +51,8 @@ import {
   getAnalyticsSummary,
 } from '@/lib/analyticsStats';
 import { HealthScoreBadge } from '@/components/entities/HealthScoreBadge';
+import { useAudits, useBranches, useRegions, useUsers } from '@/hooks/useDashboardData';
+import { toast } from 'sonner';
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -68,16 +64,35 @@ export default function AnalyticsPage() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedMonth, setSelectedMonth] = useState<number | undefined>(undefined);
-  
-  // All hooks must be called before any conditional returns
-  const availableYears = useMemo(() => getAvailableYears(), []);
-  const summary = useMemo(() => getAnalyticsSummary(selectedYear), [selectedYear]);
-  const auditVolume = useMemo(() => getAuditVolumeByYear(selectedYear), [selectedYear]);
-  const benchmarks = useMemo(() => getScoreBenchmarks(selectedYear, selectedMonth), [selectedYear, selectedMonth]);
-  const yearlyAverages = useMemo(() => getYearlyAverages(selectedYear), [selectedYear]);
-  const auditorPerformance = useMemo(() => getAuditorPerformance(selectedYear), [selectedYear]);
-  const topBranches = useMemo(() => getBranchRankings('top', 10, selectedYear, selectedMonth), [selectedYear, selectedMonth]);
-  const bottomBranches = useMemo(() => getBranchRankings('bottom', 10, selectedYear, selectedMonth), [selectedYear, selectedMonth]);
+
+  const auditsQuery = useAudits();
+  const branchesQuery = useBranches();
+  const regionsQuery = useRegions();
+  const usersQuery = useUsers();
+
+  const audits = auditsQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const regions = regionsQuery.data ?? [];
+  const users = usersQuery.data ?? [];
+
+  const isLoading = auditsQuery.isLoading || branchesQuery.isLoading || regionsQuery.isLoading || usersQuery.isLoading;
+  const isError = auditsQuery.isError || branchesQuery.isError || regionsQuery.isError || usersQuery.isError;
+
+  // Show a single toast on error (avoid spamming)
+  const errorKey = `${auditsQuery.isError}-${branchesQuery.isError}-${regionsQuery.isError}-${usersQuery.isError}`;
+  useMemo(() => {
+    if (isError) toast.error('Failed to load analytics data');
+    return null;
+  }, [errorKey]);
+
+  const availableYears = useMemo(() => getAvailableYears(audits), [audits]);
+  const summary = useMemo(() => getAnalyticsSummary(selectedYear, audits), [selectedYear, audits]);
+  const auditVolume = useMemo(() => getAuditVolumeByYear(selectedYear, audits), [selectedYear, audits]);
+  const benchmarks = useMemo(() => getScoreBenchmarks(audits, branches, selectedYear, selectedMonth), [audits, branches, selectedYear, selectedMonth]);
+  const yearlyAverages = useMemo(() => getYearlyAverages(selectedYear, audits), [selectedYear, audits]);
+  const auditorPerformance = useMemo(() => getAuditorPerformance(selectedYear, audits, users), [selectedYear, audits, users]);
+  const topBranches = useMemo(() => getBranchRankings('top', audits, branches, regions, 10, selectedYear, selectedMonth), [audits, branches, regions, selectedYear, selectedMonth]);
+  const bottomBranches = useMemo(() => getBranchRankings('bottom', audits, branches, regions, 10, selectedYear, selectedMonth), [audits, branches, regions, selectedYear, selectedMonth]);
 
   const chartConfig = {
     branchesAudited: { label: 'Branches Audited', color: 'hsl(var(--primary))' },
@@ -85,9 +100,24 @@ export default function AnalyticsPage() {
     averageScore: { label: 'Average Score', color: 'hsl(var(--primary))' },
   };
   
-  // Block access for non-admin roles (after all hooks)
-  if (!user || !['super_admin', 'audit_manager'].includes(user.role)) {
+  if (!user || !['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+        <p className="text-muted-foreground">Failed to load analytics data</p>
+      </div>
+    );
   }
 
   return (

@@ -449,11 +449,18 @@ export type Database = {
           audit_id: string | null
           capa_code: string
           created_at: string | null
+          department_id: string | null
           description: string
           due_date: string
+          escalated_to_role: string | null
+          escalated_to_user_id: string | null
+          escalation_due_date: string | null
+          escalation_level: number
           entity_id: string
           entity_type: string
           evidence_urls: string[] | null
+          expired_at: string | null
+          expired_reason: string | null
           finding_id: string | null
           id: string
           notes: string | null
@@ -467,11 +474,18 @@ export type Database = {
           audit_id?: string | null
           capa_code: string
           created_at?: string | null
+          department_id?: string | null
           description: string
           due_date: string
+          escalated_to_role?: string | null
+          escalated_to_user_id?: string | null
+          escalation_due_date?: string | null
+          escalation_level?: number
           entity_id: string
           entity_type: string
           evidence_urls?: string[] | null
+          expired_at?: string | null
+          expired_reason?: string | null
           finding_id?: string | null
           id?: string
           notes?: string | null
@@ -485,8 +499,13 @@ export type Database = {
           audit_id?: string | null
           capa_code?: string
           created_at?: string | null
+          department_id?: string | null
           description?: string
           due_date?: string
+          escalated_to_role?: string | null
+          escalated_to_user_id?: string | null
+          escalation_due_date?: string | null
+          escalation_level?: number
           entity_id?: string
           entity_type?: string
           evidence_urls?: string[] | null
@@ -496,6 +515,8 @@ export type Database = {
           priority?: string
           status?: string | null
           sub_tasks?: Json | null
+          expired_at?: string | null
+          expired_reason?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -560,6 +581,50 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capa_escalation_history: {
+        Row: {
+          action: string
+          capa_id: string
+          created_at: string | null
+          from_role: string | null
+          from_user_id: string | null
+          id: string
+          reason: string | null
+          to_role: string | null
+          to_user_id: string | null
+        }
+        Insert: {
+          action: string
+          capa_id: string
+          created_at?: string | null
+          from_role?: string | null
+          from_user_id?: string | null
+          id?: string
+          reason?: string | null
+          to_role?: string | null
+          to_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          capa_id?: string
+          created_at?: string | null
+          from_role?: string | null
+          from_user_id?: string | null
+          id?: string
+          reason?: string | null
+          to_role?: string | null
+          to_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capa_escalation_history_capa_id_fkey"
+            columns: ["capa_id"]
+            isOneToOne: false
+            referencedRelation: "capa"
             referencedColumns: ["id"]
           },
         ]
@@ -965,6 +1030,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_user_with_auth: {
+        Args: {
+          _email: string
+          _password: string
+          _full_name: string
+          _phone?: string | null
+          _role?: string
+          _status?: string
+        }
+        Returns: {
+          success: boolean
+          message: string
+          user_id: string
+        }[]
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -978,12 +1058,23 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_super_admin: { Args: { _user_id: string }; Returns: boolean }
+      run_capa_escalation_ladder: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          escalated_count: number
+          expired_count: number
+        }[]
+      }
     }
     Enums: {
       app_role:
         | "super_admin"
+        | "head_of_quality"
         | "audit_manager"
         | "regional_manager"
+        | "area_manager"
+        | "regional_operational_manager"
+        | "national_operational_manager"
         | "auditor"
         | "branch_manager"
         | "bck_manager"
@@ -1117,8 +1208,12 @@ export const Constants = {
     Enums: {
       app_role: [
         "super_admin",
+        "head_of_quality",
         "audit_manager",
         "regional_manager",
+        "area_manager",
+        "regional_operational_manager",
+        "national_operational_manager",
         "auditor",
         "branch_manager",
         "bck_manager",

@@ -3,25 +3,21 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type { TemplateSection } from '@/lib/templateStorage';
-import { AuditItemResponse } from '@/lib/auditExecutionStorage';
+import { AuditItemResponse, CAPAPriority } from '@/lib/auditExecutionStorage';
+import type { AuditExecutionItemState } from '@/hooks/useAuditExecution';
 import { ChecklistItem } from './ChecklistItem';
-
-interface ItemState {
-  response: AuditItemResponse | null;
-  evidenceFiles: File[];
-  evidenceUrls: string[];
-  manualFinding: string;
-}
 
 interface ChecklistSectionProps {
   section: TemplateSection;
-  itemStates: Map<string, ItemState>;
+  itemStates: Map<string, AuditExecutionItemState>;
   isReadOnly: boolean;
   onResponseChange: (itemId: string, response: AuditItemResponse) => void;
   onAddEvidence: (itemId: string, file: File) => void;
   onRemoveEvidence: (itemId: string, index: number) => void;
   onRemoveEvidenceUrl: (itemId: string, index: number) => void;
   onManualFindingChange: (itemId: string, note: string) => void;
+  onCAPAPriorityChange: (itemId: string, priority: CAPAPriority | null) => void;
+  onCAPADueDateChange: (itemId: string, dueDate: string | null) => void;
 }
 
 export function ChecklistSection({
@@ -33,6 +29,8 @@ export function ChecklistSection({
   onRemoveEvidence,
   onRemoveEvidenceUrl,
   onManualFindingChange,
+  onCAPAPriorityChange,
+  onCAPADueDateChange,
 }: ChecklistSectionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -77,7 +75,10 @@ export function ChecklistSection({
                 response: null,
                 evidenceFiles: [],
                 evidenceUrls: [],
+                evidencePaths: [],
                 manualFinding: '',
+                capaPriority: null,
+                capaDueDate: null,
               };
 
               return (
@@ -91,6 +92,8 @@ export function ChecklistSection({
                   onRemoveEvidence={(index) => onRemoveEvidence(item.id, index)}
                   onRemoveEvidenceUrl={(index) => onRemoveEvidenceUrl(item.id, index)}
                   onManualFindingChange={(note) => onManualFindingChange(item.id, note)}
+                  onCAPAPriorityChange={(p) => onCAPAPriorityChange(item.id, p)}
+                  onCAPADueDateChange={(d) => onCAPADueDateChange(item.id, d)}
                 />
               );
             })}

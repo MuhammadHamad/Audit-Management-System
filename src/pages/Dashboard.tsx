@@ -46,6 +46,7 @@ export default function Dashboard() {
   // Role-based dashboard routing
   switch (user.role) {
     case 'super_admin':
+    case 'head_of_quality':
     case 'audit_manager':
       return (
         <AuditManagerDashboardView 
@@ -55,6 +56,11 @@ export default function Dashboard() {
           setAuditWindow={setAuditWindow}
         />
       );
+
+    case 'area_manager':
+    case 'regional_operational_manager':
+    case 'national_operational_manager':
+      return <Navigate to="/capa" replace />;
     
     case 'regional_manager':
       return <RegionalManagerDashboard user={user} />;

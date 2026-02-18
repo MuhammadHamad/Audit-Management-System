@@ -69,7 +69,7 @@ export const defaultNotificationPreferences: NotificationPreference[] = [
   { 
     type: 'capa_assigned', 
     label: 'CAPA Assigned', 
-    roles: ['branch_manager', 'bck_manager', 'audit_manager'], 
+    roles: ['branch_manager', 'bck_manager', 'head_of_quality', 'audit_manager'], 
     editable: false 
   },
   { 
@@ -87,13 +87,13 @@ export const defaultNotificationPreferences: NotificationPreference[] = [
   { 
     type: 'incident_critical', 
     label: 'Incident Critical', 
-    roles: ['regional_manager', 'audit_manager'], 
+    roles: ['regional_manager', 'head_of_quality', 'audit_manager'], 
     editable: true 
   },
   { 
     type: 'supplier_suspended', 
     label: 'Supplier Suspended', 
-    roles: ['audit_manager'], 
+    roles: ['head_of_quality', 'audit_manager'], 
     editable: false 
   },
   { 
@@ -105,7 +105,7 @@ export const defaultNotificationPreferences: NotificationPreference[] = [
   { 
     type: 'capa_escalated', 
     label: 'CAPA Escalated', 
-    roles: ['regional_manager', 'audit_manager'], 
+    roles: ['regional_manager', 'head_of_quality', 'audit_manager'], 
     editable: true 
   },
 ];

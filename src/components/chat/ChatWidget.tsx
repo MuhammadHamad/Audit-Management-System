@@ -165,7 +165,7 @@ export function ChatWidget() {
       "If a user asks for something you cannot verify from the provided database context, ask 1-2 clarifying questions.",
       "Never fabricate records, IDs, codes, statuses, dates, or counts.",
       "Modules: users, regions, branches, BCKs (Burgerizzr Central Kitchens), suppliers, templates, audit plans, audits, audit execution, findings, CAPA (Corrective and Preventive Actions), incidents, verification queue, analytics, reports.",
-      "Roles: super_admin, audit_manager, regional_manager, auditor, branch_manager, bck_manager, staff.",
+      "Roles: super_admin, head_of_quality, audit_manager, regional_manager, auditor, branch_manager, bck_manager, staff.",
       user ? `Current user: ${user.full_name} (${user.role}).` : "No authenticated user.",
     ].join("\n");
   }, [user]);

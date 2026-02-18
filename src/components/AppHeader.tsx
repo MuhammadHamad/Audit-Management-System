@@ -25,12 +25,14 @@ const routeTitles: Record<string, string> = {
   '/templates': 'Templates',
   '/audit-plans': 'Audit Plans',
   '/audits': 'Audits',
+  '/audits/pending-verification': 'Audit Verification',
+  '/capa/pending-verification': 'Corrective Action Verification',
   '/capa': 'CAPA',
-  '/incidents': 'Incidents',
   '/reports': 'Reports',
   '/settings': 'Settings',
   '/profile': 'Profile',
   '/notifications': 'Notifications',
+  '/analytics': 'Analytics',
 };
 
 const routeParents: Record<string, { title: string; href: string }[]> = {
@@ -41,8 +43,9 @@ const routeParents: Record<string, { title: string; href: string }[]> = {
   '/templates': [{ title: 'Audit Program', href: '#' }],
   '/audit-plans': [{ title: 'Audit Program', href: '#' }],
   '/audits': [{ title: 'Audit Program', href: '#' }],
+  '/audits/pending-verification': [{ title: 'Audit Program', href: '#' }],
+  '/capa/pending-verification': [{ title: 'Audit Program', href: '#' }],
   '/capa': [{ title: 'Audit Program', href: '#' }],
-  '/incidents': [{ title: 'Audit Program', href: '#' }],
 };
 
 export function AppHeader() {

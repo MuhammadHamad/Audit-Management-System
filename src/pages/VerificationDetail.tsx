@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Check, 
@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Audit } from '@/lib/auditStorage';
 import { 
   Finding,
@@ -52,12 +52,18 @@ import {
   rejectCAPA,
   approveAudit,
   rejectAudit,
-  fetchCAPAActivitiesByCAPAId,
+  fetchCAPAActivitiesByCAPAIds,
   signAuditEvidencePaths,
   CAPAActivity
 } from '@/lib/verificationSupabase';
 import { fetchAuditById } from '@/lib/auditSupabase';
-import { fetchAuditResults, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
+import {
+  fetchAuditResults,
+  fetchCAPAsByAuditId,
+  fetchFindingsByAuditId,
+  createSignedCAPAEvidenceUrls,
+  createSignedAuditEvidenceUrls,
+} from '@/lib/executionSupabase';
 import { fetchAuditEntityAndAuditorInfo } from '@/lib/verificationSupabase';
 import { getUsers } from '@/lib/userStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
@@ -86,8 +92,13 @@ interface ChecklistSectionDisplay {
 export default function VerificationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const from = searchParams.get('from');
+  const backHref = from === 'capa' ? '/capa/pending-verification' : '/audits/pending-verification';
   
   const [isLoading, setIsLoading] = useState(true);
   const [audit, setAudit] = useState<Audit | null>(null);
@@ -143,18 +154,39 @@ export default function VerificationDetail() {
     }
   }, [id, user]);
 
+  useEffect(() => {
+    if (from !== 'capa') return;
+    // If opened from CAPA verification queue, auto-scroll to CAPA section.
+    // Delay until after initial render.
+    const t = window.setTimeout(() => {
+      document.getElementById('findings-section')?.scrollIntoView({ behavior: 'smooth' });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [from]);
+
+  const signCAPAEvidencePaths = async (paths: string[]): Promise<string[]> => {
+    return createSignedCAPAEvidenceUrls(paths).catch(() => createSignedAuditEvidenceUrls(paths)).catch(() => paths);
+  };
+
   const loadData = async () => {
     setIsLoading(true);
     try {
       const auditData = await fetchAuditById(id!);
       if (!auditData) {
-        navigate('/audits/pending-verification');
+        navigate(backHref);
         return;
       }
       
       setAudit(auditData);
 
-      const info = await fetchAuditEntityAndAuditorInfo(auditData);
+      // Fetch all related data in parallel
+      const [info, auditCapas, auditFindings, results] = await Promise.all([
+        fetchAuditEntityAndAuditorInfo(auditData),
+        fetchCAPAsByAuditId(auditData.id),
+        fetchFindingsByAuditId(auditData.id),
+        fetchAuditResults(auditData.id),
+      ]);
+
       setEntityInfo({
         name: info.entityName,
         code: info.entityCode,
@@ -163,53 +195,57 @@ export default function VerificationDetail() {
       });
       setAuditorName(info.auditorName);
       
-      // Template is loaded via React Query; sections will be built in a separate effect.
       setTemplateName('');
       setSections([]);
-      setFindings([]);
 
-      const [auditCapas, auditFindings, results] = await Promise.all([
-        fetchCAPAsByAuditId(auditData.id),
-        fetchFindingsByAuditId(auditData.id),
-        fetchAuditResults(auditData.id),
+      // Sign all evidence and fetch activities in parallel
+      const allEvidencePaths: string[] = [
+        ...auditFindings.flatMap(f => f.evidence_urls || []),
+        ...auditCapas.flatMap(c => c.evidence_urls || []),
+        ...results.flatMap(r => r.evidence_urls || [])
+      ];
+
+      const [allSignedUrls, activities] = await Promise.all([
+        allEvidencePaths.length > 0 
+          ? createSignedAuditEvidenceUrls(allEvidencePaths).catch(() => createSignedCAPAEvidenceUrls(allEvidencePaths)).catch(() => allEvidencePaths)
+          : Promise.resolve([]),
+        fetchCAPAActivitiesByCAPAIds(auditCapas.map(c => c.id))
       ]);
 
-      const [signedFindings, signedCapas] = await Promise.all([
-        Promise.all(
-          auditFindings.map(async (f) => ({
-            ...f,
-            evidence_urls: await signAuditEvidencePaths(f.evidence_urls || []),
-          }))
-        ),
-        Promise.all(
-          auditCapas.map(async (c) => ({
-            ...c,
-            evidence_urls: await signAuditEvidencePaths(c.evidence_urls || []),
-          }))
-        ),
-      ]);
+      const signedUrlMap = new Map<string, string>();
+      allEvidencePaths.forEach((path, i) => signedUrlMap.set(path, allSignedUrls[i]));
+
+      const getSigned = (paths: string[]) => (paths || []).map(p => signedUrlMap.get(p) || p);
+
+      const signedFindings = auditFindings.map(f => ({
+        ...f,
+        evidence_urls: getSigned(f.evidence_urls || [])
+      }));
+
+      const signedCapas = auditCapas.map(c => ({
+        ...c,
+        evidence_urls: getSigned(c.evidence_urls || [])
+      }));
 
       setCapas(signedCapas);
       setFindings(signedFindings);
       setAuditResults(results);
 
       const signedMap = new Map<string, string[]>();
-      for (const r of results) {
-        signedMap.set(r.item_id, await signAuditEvidencePaths(r.evidence_urls || []));
-      }
+      results.forEach(r => {
+        signedMap.set(r.item_id, getSigned(r.evidence_urls || []));
+      });
       setEvidenceByItemId(signedMap);
       
-      const activities: Record<string, CAPAActivity[]> = {};
       const decisions: Record<string, 'approved' | 'rejected' | 'pending'> = {};
       
-      for (const capa of auditCapas) {
-        activities[capa.id] = await fetchCAPAActivitiesByCAPAId(capa.id);
+      auditCapas.forEach((capa) => {
         decisions[capa.id] = capa.status === 'closed' || capa.status === 'approved' 
           ? 'approved' 
           : capa.status === 'rejected' 
             ? 'rejected' 
             : 'pending';
-      }
+      });
       
       setCAPAActivities(activities);
       setCAPADecisions(decisions);
@@ -267,6 +303,9 @@ export default function VerificationDetail() {
     try {
       await approveCAPA(capaId, user!.id);
       setCAPADecisions(prev => ({ ...prev, [capaId]: 'approved' }));
+      void queryClient.invalidateQueries({ queryKey: ['branches'] });
+      void queryClient.invalidateQueries({ queryKey: ['bcks'] });
+      void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       await loadData();
       toast({ title: 'CAPA approved', description: 'The corrective action has been approved.' });
     } catch (e: any) {
@@ -320,14 +359,23 @@ export default function VerificationDetail() {
 
   const handleApproveAudit = async () => {
     try {
-      await approveAudit(audit!.id, user!.id);
       setIsRecalculating(true);
-      setTimeout(() => {
-        setIsRecalculating(false);
-        toast({ title: 'Audit approved', description: 'Health score recalculation triggered.' });
-        navigate('/audits/pending-verification');
-      }, 2000);
+      
+      // Perform approval
+      await approveAudit(audit!.id, user!.id);
+      
+      // Clear React Query cache for audits to ensure lists are updated immediately
+      void queryClient.invalidateQueries({ queryKey: ['audits'] });
+      void queryClient.invalidateQueries({ queryKey: ['branches'] });
+      void queryClient.invalidateQueries({ queryKey: ['bcks'] });
+      void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      
+      toast({ title: 'Audit approved', description: 'The audit has been successfully finalized.' });
+      
+      // Navigate immediately
+      navigate(backHref);
     } catch (e: any) {
+      setIsRecalculating(false);
       toast({ title: 'Error', description: e?.message || 'Failed to approve audit', variant: 'destructive' });
     }
   };
@@ -342,7 +390,7 @@ export default function VerificationDetail() {
       await rejectAudit(audit!.id, user!.id, flagReason);
       setIsFlagModalOpen(false);
       toast({ title: 'Audit rejected', description: 'Audit has been rejected.' });
-      navigate('/audits/pending-verification');
+      navigate(backHref);
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message || 'Failed to reject audit', variant: 'destructive' });
     }
@@ -454,26 +502,26 @@ export default function VerificationDetail() {
   const criticalItemsFailed = findings.filter(f => f.severity === 'critical').length;
 
   return (
-    <div className="space-y-6 pb-24">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-background border-b py-4 -mx-6 px-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => navigate('/audits/pending-verification')}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Pending Verification</span>
-            </button>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold">{audit.audit_code}</h1>
-              <span className="text-muted-foreground">{entityInfo.name}</span>
-              <Badge variant="outline" className="bg-gray-100">
-                {entityInfo.type}
-              </Badge>
-            </div>
+  <div className="space-y-6 pb-24">
+    {/* Sticky Header */}
+    <div className="sticky top-0 z-10 bg-background border-b py-4 -mx-6 px-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <button
+            onClick={() => navigate(backHref)}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Queue
+          </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold">{audit.audit_code}</h1>
+            <span className="text-muted-foreground">{entityInfo.name}</span>
+            <Badge variant="outline" className="bg-gray-100">
+              {entityInfo.type}
+            </Badge>
           </div>
+        </div>
           
           <div className="flex items-center gap-2">
             {isRecalculating && (
@@ -750,7 +798,14 @@ export default function VerificationDetail() {
                         <div>
                           <p className="text-sm font-medium mb-1">Corrective Action Taken:</p>
                           <p className="text-sm text-muted-foreground">
-                            {capa.description || 'No description provided.'}
+                            {capa.notes || 'No corrective action notes provided.'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-medium mb-1">CAPA Requirement:</p>
+                          <p className="text-sm text-muted-foreground">
+                            {capa.description || '—'}
                           </p>
                         </div>
                         

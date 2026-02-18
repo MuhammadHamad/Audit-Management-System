@@ -14,8 +14,10 @@ import {
   CalendarDays,
   ClipboardCheck,
   CheckCircle,
+  CheckCircle2,
   AlertTriangle,
   BarChart3,
+  TrendingUp,
   Settings,
   LogOut,
   Flame,
@@ -32,8 +34,10 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   CalendarDays,
   ClipboardCheck,
   CheckCircle,
+  CheckCircle2,
   AlertTriangle,
   BarChart3,
+  TrendingUp,
   Settings,
 };
 

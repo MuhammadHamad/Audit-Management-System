@@ -154,7 +154,7 @@ export const getVerificationQueue = (
       (a.entity_type === 'branch' && branchIds.includes(a.entity_id)) ||
       (a.entity_type === 'bck' && bckIds.includes(a.entity_id))
     );
-  } else if (userRole === 'audit_manager') {
+  } else if (userRole === 'head_of_quality' || userRole === 'audit_manager') {
     // Audit manager sees all (including suppliers)
     // No additional filtering needed
   } else if (userRole !== 'super_admin') {
@@ -332,9 +332,12 @@ export const approveAudit = (
     const supplier = getSuppliers().find(s => s.id === audit.entity_id);
     entityName = supplier?.name || 'Unknown';
     // For suppliers, notify the audit manager instead
-    const auditManagers = getUsersByRole('audit_manager');
-    if (auditManagers.length > 0) {
-      managerId = auditManagers[0].id;
+    const hoqUsers = [
+      ...getUsersByRole('head_of_quality'),
+      ...getUsersByRole('audit_manager'),
+    ];
+    if (hoqUsers.length > 0) {
+      managerId = hoqUsers[0].id;
     }
   }
 
@@ -366,8 +369,11 @@ export const flagAudit = (
   updateAudit(auditId, { status: 'rejected' });
 
   // Notify Audit Manager
-  const auditManagers = getUsersByRole('audit_manager');
-  for (const manager of auditManagers) {
+  const hoqUsers = [
+    ...getUsersByRole('head_of_quality'),
+    ...getUsersByRole('audit_manager'),
+  ];
+  for (const manager of hoqUsers) {
     createNotification({
       user_id: manager.id,
       type: 'audit_flagged',

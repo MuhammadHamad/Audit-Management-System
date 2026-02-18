@@ -5,26 +5,29 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { TemplateItem } from '@/lib/templateStorage';
-import { AuditItemResponse } from '@/lib/auditExecutionStorage';
-
-interface ItemState {
-  response: AuditItemResponse | null;
-  evidenceFiles: File[];
-  evidenceUrls: string[];
-  manualFinding: string;
-}
+import { AuditItemResponse, CAPAPriority, calculateDueDate } from '@/lib/auditExecutionStorage';
+import type { AuditExecutionItemState } from '@/hooks/useAuditExecution';
 
 interface ChecklistItemProps {
   item: TemplateItem;
-  state: ItemState;
+  state: AuditExecutionItemState;
   isReadOnly: boolean;
   onResponseChange: (response: AuditItemResponse) => void;
   onAddEvidence: (file: File) => void;
   onRemoveEvidence: (index: number) => void;
   onRemoveEvidenceUrl: (index: number) => void;
   onManualFindingChange: (note: string) => void;
+  onCAPAPriorityChange: (priority: CAPAPriority | null) => void;
+  onCAPADueDateChange: (dueDate: string | null) => void;
   checklistSubItems?: string[];
 }
 
@@ -37,6 +40,8 @@ export function ChecklistItem({
   onRemoveEvidence,
   onRemoveEvidenceUrl,
   onManualFindingChange,
+  onCAPAPriorityChange,
+  onCAPADueDateChange,
   checklistSubItems = ['Sub-item 1', 'Sub-item 2', 'Sub-item 3'],
 }: ChecklistItemProps) {
   const [showManualFinding, setShowManualFinding] = useState(false);
@@ -61,8 +66,69 @@ export function ChecklistItem({
     
     if (item.type === 'pass_fail' && value === 'fail') return true;
     if (item.type === 'rating' && typeof value === 'number' && value <= 2) return true;
+
+    if (item.type === 'checklist' && typeof value === 'object' && value !== null) {
+      return Object.values(value as Record<string, boolean>).some(v => !v);
+    }
     
     return false;
+  };
+
+  const shouldShowCAPAOverrides = isFailed() || !!state.manualFinding?.trim();
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const renderCAPAOverrides = () => {
+    if (!shouldShowCAPAOverrides) return null;
+
+    return (
+      <div className="mt-3 border rounded-md p-3 bg-muted/20">
+        <div className="text-xs font-medium text-muted-foreground mb-2">CAPA Settings (Auditor)</div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Priority</div>
+            <Select
+              value={state.capaPriority ?? 'auto'}
+              onValueChange={(v) => {
+                if (v === 'auto') {
+                  onCAPAPriorityChange(null);
+                  onCAPADueDateChange(null);
+                  return;
+                }
+                const p = v as CAPAPriority;
+                onCAPAPriorityChange(p);
+                onCAPADueDateChange(calculateDueDate(p as any));
+              }}
+              disabled={isReadOnly}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Auto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Due date</div>
+            <Input
+              type="date"
+              value={state.capaDueDate ?? ''}
+              min={today}
+              onChange={(e) => onCAPADueDateChange(e.target.value || null)}
+              disabled={isReadOnly}
+              className="h-9"
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -454,6 +520,7 @@ export function ChecklistItem({
 
           {renderEvidenceArea()}
           {renderManualFinding()}
+          {renderCAPAOverrides()}
         </div>
 
         {/* Right side input for compact types */}

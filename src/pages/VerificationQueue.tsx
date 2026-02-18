@@ -40,10 +40,9 @@ export default function VerificationQueue() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
-  const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
 
-  const canAccess = !!user && ['super_admin', 'audit_manager'].includes(user.role);
+  const canAccess = !!user && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role);
 
   const queueQuery = useQuery({
     queryKey: ['verification-queue', user?.id, user?.role],
@@ -76,22 +75,8 @@ export default function VerificationQueue() {
     if (entityTypeFilter !== 'all' && item.audit.entity_type !== entityTypeFilter) {
       return false;
     }
-
-    // Priority filter
-    if (priorityFilter === 'critical' && item.criticalFindingsCount === 0) {
-      return false;
-    }
-    if (priorityFilter === 'overdue' && !item.hasOverdueCapa) {
-      return false;
-    }
-    if (priorityFilter === 'evidence_complete') {
-      // All CAPA have evidence uploaded
-      // This is a simplification - in full implementation we'd check each CAPA
-      if (item.capaPending > 0) return false;
-    }
-
     return true;
-  }), [queueItems, searchQuery, entityTypeFilter, priorityFilter]);
+  }), [queueItems, searchQuery, entityTypeFilter]);
 
   // Stats
   const stats = {
@@ -199,17 +184,6 @@ export default function VerificationQueue() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="All" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="critical">Has Critical Findings</SelectItem>
-            <SelectItem value="overdue">Has Overdue CAPA</SelectItem>
-            <SelectItem value="evidence_complete">All CAPA Evidence Uploaded</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
       {/* Table */}
@@ -223,7 +197,6 @@ export default function VerificationQueue() {
                 <TableHead>Auditor</TableHead>
                 <TableHead>Audit Score</TableHead>
                 <TableHead>Findings</TableHead>
-                <TableHead>CAPA Status</TableHead>
                 <TableHead>Submitted</TableHead>
                 <TableHead className="w-[100px]">Actions</TableHead>
               </TableRow>
@@ -232,7 +205,7 @@ export default function VerificationQueue() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
@@ -241,7 +214,7 @@ export default function VerificationQueue() {
                 ))
               ) : paginatedItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                  <TableCell colSpan={7} className="text-center py-12">
                     <div className="flex flex-col items-center gap-2">
                       <ClipboardCheck className="h-12 w-12 text-green-500" />
                       <p className="text-muted-foreground">Nothing to review. All audits are up to date.</p>
@@ -296,18 +269,6 @@ export default function VerificationQueue() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        <span className="text-green-600">{item.capaClosed} closed</span>
-                        <span className="text-muted-foreground">, </span>
-                        <span className="text-yellow-600">{item.capaPending} pending</span>
-                        {item.hasOverdueCapa && (
-                          <Badge variant="destructive" className="ml-2 text-xs">
-                            Overdue
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {formatDistanceToNow(new Date(item.submittedAt), { addSuffix: true })}
                     </TableCell>
@@ -316,7 +277,7 @@ export default function VerificationQueue() {
                         size="sm"
                         onClick={() => navigate(`/audits/${item.audit.id}/verify`)}
                       >
-                        Review
+                        Review Report
                       </Button>
                     </TableCell>
                   </TableRow>

@@ -38,7 +38,7 @@ export interface Finding {
   updated_at: string;
 }
 
-export type CAPAStatus = 'open' | 'in_progress' | 'pending_verification' | 'approved' | 'rejected' | 'escalated' | 'closed';
+export type CAPAStatus = 'open' | 'in_progress' | 'pending_verification' | 'approved' | 'rejected' | 'escalated' | 'closed' | 'expired';
 export type CAPAPriority = 'low' | 'medium' | 'high' | 'critical';
 
 export interface SubTask {
@@ -56,6 +56,7 @@ export interface CAPA {
   capa_code: string;
   finding_id: string;
   audit_id: string;
+  department_id?: string | null;
   entity_type: 'branch' | 'bck' | 'supplier';
   entity_id: string;
   description: string;
@@ -63,6 +64,12 @@ export interface CAPA {
   due_date: string;
   status: CAPAStatus;
   priority: CAPAPriority;
+  escalation_level?: number;
+  escalation_due_date?: string | null;
+  escalated_to_user_id?: string | null;
+  escalated_to_role?: string | null;
+  expired_at?: string | null;
+  expired_reason?: string | null;
   evidence_urls: string[];
   notes?: string;
   sub_tasks: SubTask[];
@@ -308,13 +315,16 @@ export const getAssigneeForCAPA = (
     return bck?.manager_id;
   } else if (entityType === 'supplier') {
     // Assign to audit manager
-    const auditManagers = getUsersByRole('audit_manager');
-    return auditManagers[0]?.id;
+    const hoqUsers = [
+      ...getUsersByRole('head_of_quality'),
+      ...getUsersByRole('audit_manager'),
+    ];
+    return hoqUsers[0]?.id;
   }
   return undefined;
 };
 
-export const calculateDueDate = (severity: FindingSeverity): string => {
+export const calculateDueDate = (severity: FindingSeverity | CAPAPriority): string => {
   const now = new Date();
   let daysToAdd = 30; // Default for low
   

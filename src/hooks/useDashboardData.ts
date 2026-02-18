@@ -3,6 +3,7 @@ import { fetchAudits } from '@/lib/auditSupabase';
 import { fetchCAPAs, fetchFindings } from '@/lib/executionSupabase';
 import { fetchIncidents } from '@/lib/incidentSupabase';
 import { fetchBranches, fetchBCKs, fetchSuppliers, fetchRegions } from '@/lib/entitySupabase';
+import { fetchUsers } from '@/lib/userStorage';
 
 // React Query hooks for dashboard data fetching
 // Tuned staleTime based on data volatility:
@@ -74,5 +75,13 @@ export function useRegions() {
     queryKey: ['regions'],
     queryFn: fetchRegions,
     staleTime: 5 * 60 * 1000,          // 5 minutes - entities are relatively stable
+  });
+}
+
+export function useUsers() {
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: fetchUsers,
+    staleTime: 5 * 60 * 1000,          // 5 minutes - users change infrequently
   });
 }

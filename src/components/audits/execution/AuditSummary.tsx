@@ -124,26 +124,24 @@ export function AuditSummary({ findings, capas }: AuditSummaryProps) {
                     <span className="font-mono text-xs text-muted-foreground">
                       {capa.capa_code}
                     </span>
-                    <Badge
-                      variant={capa.priority === 'critical' || capa.priority === 'high' ? 'destructive' : 'secondary'}
-                      className={cn(
-                        'text-[10px] uppercase',
-                        capa.priority === 'medium' && 'bg-amber-100 text-amber-800',
-                        capa.priority === 'low' && 'bg-blue-100 text-blue-800'
-                      )}
-                    >
-                      {capa.priority}
+                    <Badge variant="outline" className={cn(
+                      'text-[10px] uppercase',
+                      capa.priority === 'critical' || capa.priority === 'high' ? 'border-red-200 text-red-700 bg-red-50' :
+                      capa.priority === 'medium' ? 'border-amber-200 text-amber-700 bg-amber-50' :
+                      'border-blue-200 text-blue-700 bg-blue-50'
+                    )}>
+                      {capa.priority.toUpperCase()}
                     </Badge>
-                    <Badge variant="outline" className="text-[10px]">
-                      {capa.status}
-                    </Badge>
-                  </div>
-                  <p className="text-sm line-clamp-2">{capa.description}</p>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                    <Clock className="h-3 w-3" />
-                    Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}
                   </div>
                 </div>
+                <Badge variant="secondary" className="text-[10px] uppercase">
+                  {capa.status.replace('_', ' ')}
+                </Badge>
+              </div>
+              <p className="text-sm font-medium mt-1">{capa.description}</p>
+              <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                <span>Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}</span>
               </div>
             </div>
           ))}

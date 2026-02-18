@@ -206,7 +206,7 @@ export default function IncidentDetailPage() {
 
   const canAssign = user?.role === 'regional_manager';
   const canClose = user?.role === 'regional_manager';
-  const canTriggerAudit = user?.role === 'audit_manager' && 
+  const canTriggerAudit = (user?.role === 'head_of_quality' || user?.role === 'audit_manager') && 
     incident?.entity_type === 'supplier' && 
     !incident.related_audit_id &&
     ['open', 'under_investigation'].includes(incident.status);

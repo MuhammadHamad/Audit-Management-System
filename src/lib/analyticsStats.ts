@@ -3,10 +3,9 @@
  * Provides data for the Analytics page with branch coverage, benchmarks, auditor performance, and rankings
  */
 
-import { getAudits } from './auditStorage';
-import { getBranches, getRegions } from './entityStorage';
-import { getUsers } from './userStorage';
-import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, eachMonthOfInterval, getMonth, getYear } from 'date-fns';
+import { Audit } from './auditStorage';
+import { Branch, Region, User } from '@/types';
+import { getYear, getMonth } from 'date-fns';
 
 // ============= TYPES =============
 
@@ -84,10 +83,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export const getAuditVolumeByYear = (year: number): YearlyAuditVolume => {
-  const audits = getAudits();
-  const branches = getBranches();
-  
+export const getAuditVolumeByYear = (year: number, audits: Audit[]): YearlyAuditVolume => {
   // Filter approved audits for branches in the specified year
   const yearAudits = audits.filter(a => {
     const auditDate = new Date(a.scheduled_date);
@@ -119,8 +115,7 @@ export const getAuditVolumeByYear = (year: number): YearlyAuditVolume => {
   };
 };
 
-export const getAvailableYears = (): number[] => {
-  const audits = getAudits();
+export const getAvailableYears = (audits: Audit[]): number[] => {
   const years = new Set<number>();
   
   audits.forEach(a => {
@@ -137,10 +132,7 @@ export const getAvailableYears = (): number[] => {
 
 // ============= SCORE PERFORMANCE & BENCHMARKS =============
 
-export const getScoreBenchmarks = (year?: number, month?: number): ScoreBenchmark[] => {
-  const audits = getAudits();
-  const branches = getBranches();
-  
+export const getScoreBenchmarks = (audits: Audit[], branches: Branch[], year?: number, month?: number): ScoreBenchmark[] => {
   // Filter approved branch audits
   let filteredAudits = audits.filter(a => 
     a.status === 'approved' && 
@@ -210,10 +202,8 @@ export const getScoreBenchmarks = (year?: number, month?: number): ScoreBenchmar
 
 // ============= MONTHLY & YEARLY AVERAGES =============
 
-export const getYearlyAverages = (year: number): YearlyAverages => {
-  const audits = getAudits();
+export const getYearlyAverages = (year: number, audits: Audit[]): YearlyAverages => {
   const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth();
   
   // Filter approved branch audits with scores for the year
   const yearAudits = audits.filter(a => 
@@ -261,9 +251,7 @@ export const getYearlyAverages = (year: number): YearlyAverages => {
 
 // ============= AUDITOR PERFORMANCE =============
 
-export const getAuditorPerformance = (year: number): AuditorPerformance[] => {
-  const audits = getAudits();
-  const users = getUsers();
+export const getAuditorPerformance = (year: number, audits: Audit[], users: User[]): AuditorPerformance[] => {
   const auditors = users.filter(u => u.role === 'auditor' && u.status === 'active');
   
   // Filter approved branch audits for the year
@@ -309,14 +297,13 @@ export const getAuditorPerformance = (year: number): AuditorPerformance[] => {
 
 export const getBranchRankings = (
   type: 'top' | 'bottom', 
+  audits: Audit[],
+  branches: Branch[],
+  allRegions: Region[],
   count: number = 10, 
   year?: number, 
   month?: number
 ): BranchRanking[] => {
-  const audits = getAudits();
-  const branches = getBranches();
-  const allRegions = getRegions();
-  
   // Filter approved branch audits with scores
   let filteredAudits = audits.filter(a => 
     a.status === 'approved' && 
@@ -395,10 +382,7 @@ export interface AnalyticsSummary {
   activeAuditors: number;
 }
 
-export const getAnalyticsSummary = (year: number): AnalyticsSummary => {
-  const audits = getAudits();
-  const users = getUsers();
-  
+export const getAnalyticsSummary = (year: number, audits: Audit[]): AnalyticsSummary => {
   // Filter approved branch audits for the year
   const yearAudits = audits.filter(a => 
     a.status === 'approved' && 

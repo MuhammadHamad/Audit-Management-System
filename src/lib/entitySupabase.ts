@@ -447,6 +447,58 @@ export async function deleteSupplier(id: string): Promise<void> {
   removeCachedSupplier(id);
 }
 
+export async function fetchBranchById(id: string): Promise<Branch | null> {
+  const { data, error } = await supabase
+    .from('branches')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapBranch(data) : null;
+}
+
+export async function fetchBCKById(id: string): Promise<BCK | null> {
+  const { data, error } = await supabase
+    .from('bcks')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapBCK(data) : null;
+}
+
+export async function fetchSupplierById(id: string): Promise<Supplier | null> {
+  const { data, error } = await supabase
+    .from('suppliers')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapSupplier(data) : null;
+}
+
+export async function fetchUserById(id: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: data.id,
+    email: data.email,
+    full_name: data.full_name,
+    phone: data.phone ?? undefined,
+    role: data.role as User['role'],
+    avatar_url: undefined,
+    status: (data.status ?? 'active') as User['status'],
+    created_at: data.created_at ?? '',
+    updated_at: data.updated_at ?? '',
+    last_login_at: data.last_login ?? undefined,
+  };
+}
+
 export async function fetchUsers(): Promise<User[]> {
   const { data, error } = await supabase.from('users').select('*').order('full_name');
   if (error) throw error;

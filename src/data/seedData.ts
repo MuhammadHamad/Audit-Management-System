@@ -39,8 +39,8 @@ export const seedUsers: User[] = [
   {
     id: auditManagerId,
     email: 'auditmanager@burgerizzr.sa',
-    full_name: 'Audit Manager',
-    role: 'audit_manager',
+    full_name: 'Head of Quality',
+    role: 'head_of_quality',
     status: 'active',
     created_at: now,
     updated_at: now,

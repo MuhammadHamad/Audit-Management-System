@@ -17,7 +17,18 @@ import { UserRole } from '@/types';
 import { getUserByEmail, getRegions, getBranchByCode, getBCKByCode, importUsers } from '@/lib/userStorage';
 import { toast } from 'sonner';
 
-const VALID_ROLES: UserRole[] = ['super_admin', 'audit_manager', 'regional_manager', 'auditor', 'branch_manager', 'bck_manager', 'staff'];
+const VALID_ROLES: UserRole[] = [
+  'super_admin',
+  'audit_manager',
+  'regional_manager',
+  'area_manager',
+  'regional_operational_manager',
+  'national_operational_manager',
+  'auditor',
+  'branch_manager',
+  'bck_manager',
+  'staff',
+];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 interface ParsedRow {

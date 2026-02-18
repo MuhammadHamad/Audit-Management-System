@@ -149,125 +149,133 @@ export function QuickScheduleModal({ open, onOpenChange, onSuccess }: QuickSched
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>Schedule One-time Audit</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden border-none shadow-2xl">
+        <DialogHeader className="px-6 pt-6 pb-4 bg-muted/30">
+          <DialogTitle className="text-xl font-bold">Schedule One-time Audit</DialogTitle>
+          <DialogDescription className="text-sm">
             Quickly schedule a single audit without creating a full plan.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Entity Type *</Label>
-            <Select
-              value={form.watch('entity_type') || '__none__'}
-              onValueChange={(value) => form.setValue('entity_type', value === '__none__' ? undefined as any : value as any, { shouldValidate: true })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" disabled>Select type</SelectItem>
-                <SelectItem value="branch">Branch</SelectItem>
-                <SelectItem value="bck">BCK</SelectItem>
-                <SelectItem value="supplier">Supplier</SelectItem>
-              </SelectContent>
-            </Select>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="px-6 py-4 space-y-5">
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Entity Type *</Label>
+              <Select
+                value={form.watch('entity_type') || '__none__'}
+                onValueChange={(value) => form.setValue('entity_type', value === '__none__' ? undefined as any : value as any, { shouldValidate: true })}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__" disabled>Select type</SelectItem>
+                  <SelectItem value="branch">Branch</SelectItem>
+                  <SelectItem value="bck">BCK</SelectItem>
+                  <SelectItem value="supplier">Supplier</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Entity *</Label>
+              <Select
+                value={form.watch('entity_id') || '__none__'}
+                onValueChange={(value) => form.setValue('entity_id', value === '__none__' ? '' : value, { shouldValidate: true })}
+                disabled={!watchEntityType}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Select entity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__" disabled>Select entity</SelectItem>
+                  {entities.map(entity => (
+                    <SelectItem key={entity.id} value={entity.id}>
+                      {entity.code} — {entity.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Template *</Label>
+              <Select
+                value={form.watch('template_id') || '__none__'}
+                onValueChange={(value) => form.setValue('template_id', value === '__none__' ? '' : value, { shouldValidate: true })}
+                disabled={!watchEntityType}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Select template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__" disabled>Select template</SelectItem>
+                  {filteredTemplates.map(template => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name} ({template.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Date *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        'w-full justify-start text-left font-normal h-11',
+                        !scheduledDate && 'text-muted-foreground'
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {scheduledDate ? format(scheduledDate, 'PPP') : 'Pick a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={scheduledDate}
+                      onSelect={setScheduledDate}
+                      disabled={(date) => date < new Date()}
+                      initialFocus
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Auditor (optional)</Label>
+                <Select value={auditorId || '__none__'} onValueChange={(v) => setAuditorId(v === '__none__' ? '' : v)}>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Assign later" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Assign later</SelectItem>
+                    {auditors.map(auditor => (
+                      <SelectItem key={auditor.id} value={auditor.id}>
+                        {auditor.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Entity *</Label>
-            <Select
-              value={form.watch('entity_id') || '__none__'}
-              onValueChange={(value) => form.setValue('entity_id', value === '__none__' ? '' : value, { shouldValidate: true })}
-              disabled={!watchEntityType}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select entity" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" disabled>Select entity</SelectItem>
-                {entities.map(entity => (
-                  <SelectItem key={entity.id} value={entity.id}>
-                    {entity.code} — {entity.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Template *</Label>
-            <Select
-              value={form.watch('template_id') || '__none__'}
-              onValueChange={(value) => form.setValue('template_id', value === '__none__' ? '' : value, { shouldValidate: true })}
-              disabled={!watchEntityType}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select template" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" disabled>Select template</SelectItem>
-                {filteredTemplates.map(template => (
-                  <SelectItem key={template.id} value={template.id}>
-                    {template.name} ({template.code})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Scheduled Date *</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    'w-full justify-start text-left font-normal',
-                    !scheduledDate && 'text-muted-foreground'
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {scheduledDate ? format(scheduledDate, 'PPP') : 'Pick a date'}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={scheduledDate}
-                  onSelect={setScheduledDate}
-                  disabled={(date) => date < new Date()}
-                  initialFocus
-                  className="pointer-events-auto"
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Auditor (optional)</Label>
-            <Select value={auditorId || '__none__'} onValueChange={(v) => setAuditorId(v === '__none__' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Assign later" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Assign later</SelectItem>
-                {auditors.map(auditor => (
-                  <SelectItem key={auditor.id} value={auditor.id}>
-                    {auditor.full_name} ({auditor.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogFooter className="px-0 pt-4 pb-2 gap-3 sm:gap-0">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="h-11 px-6">
               Cancel
             </Button>
-            <Button type="submit" className="bg-primary" disabled={!isValid}>
+            <Button 
+              type="submit" 
+              className="h-11 px-8 min-w-[140px]" 
+              disabled={!isValid}
+            >
               Schedule Audit
             </Button>
           </DialogFooter>

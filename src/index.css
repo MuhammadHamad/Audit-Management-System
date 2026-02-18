@@ -145,9 +145,74 @@
     @apply border-border;
   }
 
+  html {
+    /* Enforce a persistent vertical scrollbar to prevent layout shifts */
+    overflow-y: scroll !important;
+    /* Prevent Radix UI from adding space for a scrollbar it thinks it removed */
+    --removed-body-scroll-bar-size: 0px !important;
+    scrollbar-gutter: stable !important;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
+    /* Enforce stable gutter and prevent library overrides */
+    scrollbar-gutter: stable !important;
+    overflow-y: scroll !important;
+    
+    /* Pixel-perfect fix: block ALL automated layout adjustments from libraries */
+    padding-right: 0px !important;
+    margin-right: 0px !important;
+    width: 100% !important;
+    position: relative;
+  }
+
+  /* Aggressive neutralize for Radix/Shadcn/Vaul/Headless UI scroll-lock mechanisms */
+  html[data-scroll-locked],
+  body[data-scroll-locked],
+  body[style*="overflow: hidden"],
+  body[style*="padding-right"],
+  [data-radix-popper-content-wrapper] {
+    padding-right: 0px !important;
+    margin-right: 0px !important;
+    /* Overwrite the variable Radix uses to calculate offset for fixed elements */
+    --removed-body-scroll-bar-size: 0px !important;
+  }
+
+  /* Fixed headers/sidebars often jump because they use 'right: 0' */
+  header.fixed, 
+  nav.fixed {
+    padding-right: 0px !important;
+    margin-right: 0px !important;
+  }
+
+
+
+  /* Modern, sleek scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/20 rounded-full transition-colors;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+
+  /* Dark mode scrollbar adjustment */
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/10;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/30;
   }
 }
 

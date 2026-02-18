@@ -30,17 +30,15 @@ const AuditPlansPage = lazy(() => import("@/pages/AuditPlans"));
 const AuditExecutionPage = lazy(() => import("@/pages/AuditExecution"));
 const VerificationQueuePage = lazy(() => import("@/pages/VerificationQueue"));
 const VerificationDetailPage = lazy(() => import("@/pages/VerificationDetail"));
+const CAPAVerificationQueuePage = lazy(() => import("@/pages/CAPAVerificationQueue"));
 const CAPADetailPage = lazy(() => import("@/pages/CAPADetail"));
-const IncidentsPage = lazy(() => import("@/pages/Incidents"));
-const IncidentCreatePage = lazy(() => import("@/pages/IncidentCreate"));
-const IncidentDetailPage = lazy(() => import("@/pages/IncidentDetail"));
 const AnalyticsPage = lazy(() => import("@/pages/Analytics"));
 const ReportsPage = lazy(() => import("@/pages/Reports"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const ProfilePage = lazy(() => import("@/pages/Profile"));
 const NotificationsPage = lazy(() => import("@/pages/Notifications"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
-
+// Maintenance integrated into Users screen
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -112,8 +110,16 @@ const App = () => (
                   <Route
                     path="/audits/pending-verification"
                     element={
-                      <ProtectedRoute allowedRoles={['super_admin', 'audit_manager']}>
+                      <ProtectedRoute allowedRoles={['super_admin', 'head_of_quality', 'audit_manager']}>
                         <Suspense fallback={<PageLoader />}><VerificationQueuePage /></Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/capa/pending-verification"
+                    element={
+                      <ProtectedRoute allowedRoles={['super_admin', 'head_of_quality', 'audit_manager']}>
+                        <Suspense fallback={<PageLoader />}><CAPAVerificationQueuePage /></Suspense>
                       </ProtectedRoute>
                     }
                   />
@@ -121,16 +127,13 @@ const App = () => (
                   <Route
                     path="/audits/:id/verify"
                     element={
-                      <ProtectedRoute allowedRoles={['super_admin', 'audit_manager']}>
+                      <ProtectedRoute allowedRoles={['super_admin', 'head_of_quality', 'audit_manager']}>
                         <Suspense fallback={<PageLoader />}><VerificationDetailPage /></Suspense>
                       </ProtectedRoute>
                     }
                   />
                   <Route path="/capa" element={<CAPAPage />} />
                   <Route path="/capa/:id" element={<Suspense fallback={<PageLoader />}><CAPADetailPage /></Suspense>} />
-                  <Route path="/incidents" element={<Suspense fallback={<PageLoader />}><IncidentsPage /></Suspense>} />
-                  <Route path="/incidents/create" element={<Suspense fallback={<PageLoader />}><IncidentCreatePage /></Suspense>} />
-                  <Route path="/incidents/:id" element={<Suspense fallback={<PageLoader />}><IncidentDetailPage /></Suspense>} />
                   <Route path="/analytics" element={<Suspense fallback={<PageLoader />}><AnalyticsPage /></Suspense>} />
                   <Route path="/reports" element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
                   <Route path="/settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />

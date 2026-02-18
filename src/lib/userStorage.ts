@@ -1,4 +1,5 @@
 import { User, UserAssignment, Region, Branch, BCK, Supplier, UserRole } from '@/types';
+import type { Database } from '@/integrations/supabase/types';
 import { supabase } from '@/integrations/supabase/client';
 
 // NOTE: This file provides both sync and async functions for data operations
@@ -96,7 +97,25 @@ const mapUser = (u: any): User => ({
   email: u.email,
   full_name: u.full_name,
   phone: u.phone || undefined,
-  role: u.role as UserRole,
+  role: (
+    (
+      [
+        'super_admin',
+        'head_of_quality',
+        'audit_manager',
+        'regional_manager',
+        'auditor',
+        'branch_manager',
+        'bck_manager',
+        'staff',
+        'area_manager',
+        'regional_operational_manager',
+        'national_operational_manager',
+      ] as string[]
+    ).includes(String(u.role))
+      ? (u.role as UserRole)
+      : 'staff'
+  ),
   avatar_url: undefined,
   status: (u.status || 'active') as 'active' | 'inactive',
   created_at: u.created_at || '',
@@ -387,7 +406,7 @@ export const createUser = async (user: {
     .from('user_roles')
     .insert({
       user_id: data.id,
-      role: user.role,
+      role: user.role as unknown as Database['public']['Enums']['app_role'],
     });
   
   return newUser;

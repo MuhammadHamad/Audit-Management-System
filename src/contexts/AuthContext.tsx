@@ -43,12 +43,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const roleFromRolesTable = await fetchUserRole(userId);
 
+      const roleCandidate = (roleFromRolesTable ?? data.role) as string;
+      const allowedRoles: UserRole[] = [
+        'super_admin',
+        'head_of_quality',
+        'audit_manager',
+        'regional_manager',
+        'auditor',
+        'branch_manager',
+        'bck_manager',
+        'staff',
+        'area_manager',
+        'regional_operational_manager',
+        'national_operational_manager',
+      ];
+      const normalizedRole: UserRole = (allowedRoles as string[]).includes(roleCandidate)
+        ? (roleCandidate as UserRole)
+        : 'staff';
+
       return {
         id: data.id,
         email: data.email,
         full_name: data.full_name,
         phone: data.phone || undefined,
-        role: (roleFromRolesTable ?? (data.role as UserRole)) as UserRole,
+        role: normalizedRole,
         avatar_url: undefined, // Supabase doesn't store avatars in users table by default
         status: (data.status || 'active') as UserStatus,
         created_at: data.created_at || '',

@@ -88,7 +88,7 @@ export const getCAPAsForUser = (
     filteredCapas = capas.filter(c => 
       c.entity_type === 'bck' && allBckIds.includes(c.entity_id)
     );
-  } else if (userRole === 'audit_manager') {
+  } else if (userRole === 'head_of_quality' || userRole === 'audit_manager') {
     // Audit Manager sees supplier CAPA + all escalated CAPA
     filteredCapas = capas.filter(c => 
       c.entity_type === 'supplier' || c.status === 'escalated'
@@ -135,6 +135,11 @@ export const getCAPAsForUser = (
     }
 
     const subTasks = capa.sub_tasks || [];
+
+    const effectiveDueDate =
+      (capa.escalation_level ?? 0) > 0 && capa.escalation_due_date
+        ? capa.escalation_due_date
+        : capa.due_date;
     
     return {
       capa,
@@ -147,7 +152,7 @@ export const getCAPAsForUser = (
       entityName,
       entityCode,
       entityType: capa.entity_type,
-      isOverdue: capa.due_date < today && !['closed', 'approved'].includes(capa.status),
+      isOverdue: effectiveDueDate < today && !['closed', 'approved', 'expired'].includes(capa.status),
       subTaskProgress: {
         completed: subTasks.filter(st => st.status === 'completed').length,
         total: subTasks.length,
@@ -196,7 +201,11 @@ export const getCAPAStats = (userId: string, userRole: string): CAPAStats => {
   return {
     open: items.filter(i => ['open', 'in_progress'].includes(i.capa.status)).length,
     overdue: items.filter(i => 
-      i.capa.due_date < today && !['closed', 'approved'].includes(i.capa.status)
+      (
+        ((i.capa.escalation_level ?? 0) > 0 && i.capa.escalation_due_date)
+          ? i.capa.escalation_due_date!
+          : i.capa.due_date
+      ) < today && !['closed', 'approved', 'expired'].includes(i.capa.status)
     ).length,
     pendingVerification: items.filter(i => i.capa.status === 'pending_verification').length,
     escalated: items.filter(i => i.capa.status === 'escalated').length,
@@ -206,71 +215,9 @@ export const getCAPAStats = (userId: string, userRole: string): CAPAStats => {
 // ============= ESCALATION LOGIC =============
 
 export const runEscalationCheck = (userId: string, userRole: string): number => {
-  const items = getCAPAsForUser(userId, userRole);
-  const today = new Date();
-  let escalatedCount = 0;
-
-  for (const item of items) {
-    const { capa } = item;
-    if (capa.status !== 'escalated' && ['open', 'in_progress'].includes(capa.status)) {
-      const dueDate = new Date(capa.due_date);
-      const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (daysPastDue >= 3) {
-        updateCAPA(capa.id, { status: 'escalated' });
-        createCAPAActivity({
-          capa_id: capa.id,
-          user_id: 'system',
-          action: 'auto_escalated',
-          details: `Auto-escalated: overdue by ${daysPastDue} days`,
-        });
-
-        // Notify appropriate manager
-        if (capa.entity_type === 'branch' || capa.entity_type === 'bck') {
-          // Notify Regional Manager
-          const entity = capa.entity_type === 'branch' 
-            ? getBranches().find(b => b.id === capa.entity_id)
-            : getBCKs().find(b => b.id === capa.entity_id);
-          
-          if (entity) {
-            const users = getUsers();
-            const regionalManagers = users.filter(u => u.role === 'regional_manager');
-            for (const rm of regionalManagers) {
-              const assignments = getAssignmentsForUser(rm.id);
-              if (assignments.some(a => a.assigned_type === 'region' && a.assigned_id === entity.region_id)) {
-                createNotification({
-                  user_id: rm.id,
-                  type: 'capa_escalated',
-                  title: 'CAPA Auto-Escalated',
-                  message: `CAPA ${capa.capa_code} has been auto-escalated. It is ${daysPastDue} days overdue.`,
-                  link_to: `/capa/${capa.id}`,
-                  read: false,
-                });
-              }
-            }
-          }
-        } else {
-          // Notify Audit Manager for suppliers
-          const users = getUsers();
-          const auditManagers = users.filter(u => u.role === 'audit_manager');
-          for (const am of auditManagers) {
-            createNotification({
-              user_id: am.id,
-              type: 'capa_escalated',
-              title: 'CAPA Auto-Escalated',
-              message: `CAPA ${capa.capa_code} has been auto-escalated. It is ${daysPastDue} days overdue.`,
-              link_to: `/capa/${capa.id}`,
-              read: false,
-            });
-          }
-        }
-
-        escalatedCount++;
-      }
-    }
-  }
-
-  return escalatedCount;
+  void userId;
+  void userRole;
+  return 0;
 };
 
 // ============= SUB-TASK OPERATIONS =============
@@ -538,8 +485,8 @@ export const markCAPAPendingVerification = (
     // Notify Audit Manager for suppliers
     const supplier = getSuppliers().find(s => s.id === capa.entity_id);
     const users = getUsers();
-    const auditManagers = users.filter(u => u.role === 'audit_manager');
-    for (const am of auditManagers) {
+    const hoqUsers = users.filter(u => u.role === 'head_of_quality' || u.role === 'audit_manager');
+    for (const am of hoqUsers) {
       createNotification({
         user_id: am.id,
         type: 'capa_pending_verification',

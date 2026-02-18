@@ -183,14 +183,14 @@ export const createIncident = (
       }
     }
 
-    // Always notify Audit Managers for critical incidents
-    const auditManagers = users.filter(u => u.role === 'audit_manager');
-    for (const am of auditManagers) {
+    // Always notify HoQ and Audit Managers for critical incidents
+    const hoqUsers = users.filter(u => u.role === 'head_of_quality' || u.role === 'audit_manager');
+    for (const am of hoqUsers) {
       createNotification({
         user_id: am.id,
-        type: 'critical_incident',
-        title: 'Critical Incident Reported',
-        message: `Critical incident reported at ${entityName}: ${incident.title}. Immediate attention required.`,
+        type: 'incident_critical',
+        title: 'Critical Incident Alert',
+        message: `Critical incident reported: ${newIncident.incident_code}. Immediate attention required.`,
         link_to: `/incidents/${newIncident.id}`,
         read: false,
       });
@@ -307,7 +307,7 @@ export const getIncidentsForUser = (
       (i.entity_type === 'bck' && bckIds.includes(i.entity_id)) ||
       i.entity_type === 'supplier'
     );
-  } else if (userRole === 'audit_manager' || userRole === 'super_admin') {
+  } else if (userRole === 'head_of_quality' || userRole === 'audit_manager' || userRole === 'super_admin') {
     // See all incidents
     filteredIncidents = incidents;
   }
@@ -480,15 +480,15 @@ export const resolveIncident = (
     details: `${user?.full_name || 'User'} resolved this incident`,
   });
 
-  // Notify Audit Manager for critical incidents
+  // Notify HoQ and Audit Manager for critical incidents
   if (incident.severity === 'critical') {
-    const auditManagers = getUsers().filter(u => u.role === 'audit_manager');
-    for (const am of auditManagers) {
+    const hoqUsers = getUsers().filter(u => u.role === 'head_of_quality' || u.role === 'audit_manager');
+    for (const am of hoqUsers) {
       createNotification({
         user_id: am.id,
-        type: 'incident_resolved',
-        title: 'Critical Incident Resolved',
-        message: `Critical incident ${incident.incident_code} has been resolved.`,
+        type: 'incident_critical',
+        title: 'Critical Incident Alert',
+        message: `Critical incident reported: ${incident.incident_code}. Immediate attention required.`,
         link_to: `/incidents/${incidentId}`,
         read: false,
       });
@@ -560,7 +560,7 @@ export const triggerAuditFromIncident = (
     incident_id: incidentId,
     user_id: triggeredByUserId,
     action: 'audit_triggered',
-    details: `${triggeredByUser?.full_name || 'Audit Manager'} triggered audit ${newAudit.audit_code} from this incident`,
+    details: `${triggeredByUser?.full_name || 'Head of Quality'} triggered audit ${newAudit.audit_code} from this incident`,
   });
 
   // Notify auditor if assigned

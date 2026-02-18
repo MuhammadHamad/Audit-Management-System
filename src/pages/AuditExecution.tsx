@@ -39,6 +39,8 @@ export default function AuditExecution() {
     removeEvidenceFile,
     removeEvidenceUrl,
     updateManualFinding,
+    updateItemCAPAPriority,
+    updateItemCAPADueDate,
     saveDraft,
     submitAudit,
   } = useAuditExecution(id || '');
@@ -270,6 +272,8 @@ export default function AuditExecution() {
               onRemoveEvidence={removeEvidenceFile}
               onRemoveEvidenceUrl={removeEvidenceUrl}
               onManualFindingChange={updateManualFinding}
+              onCAPAPriorityChange={updateItemCAPAPriority}
+              onCAPADueDateChange={updateItemCAPADueDate}
             />
           ))}
       </div>

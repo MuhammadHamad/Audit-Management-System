@@ -34,14 +34,19 @@ import {
   getBranchById,
   getBCKById,
 } from '@/lib/userStorage';
+import { fetchDepartmentMembersBySlug } from '@/lib/departmentSupabase';
 
 const PAGE_SIZE = 25;
 
 const roleFilterOptions: { value: string; label: string }[] = [
   { value: 'all', label: 'All Roles' },
   { value: 'super_admin', label: 'Super Admin' },
-  { value: 'audit_manager', label: 'Audit Manager' },
+  { value: 'head_of_quality', label: 'Head of Quality' },
+  { value: 'audit_manager', label: 'Head of Quality (Legacy)' },
   { value: 'regional_manager', label: 'Regional Manager' },
+  { value: 'area_manager', label: 'Area Manager' },
+  { value: 'regional_operational_manager', label: 'Regional Operational Manager' },
+  { value: 'national_operational_manager', label: 'National Operational Manager' },
   { value: 'auditor', label: 'Auditor' },
   { value: 'branch_manager', label: 'Branch Manager' },
   { value: 'bck_manager', label: 'BCK Manager' },
@@ -57,6 +62,7 @@ const statusFilterOptions: { value: string; label: string }[] = [
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [assignments, setAssignments] = useState<UserAssignment[]>([]);
+  const [maintenanceUserIds, setMaintenanceUserIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -71,12 +77,14 @@ export default function UsersPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [usersData, assignmentsData] = await Promise.all([
+      const [usersData, assignmentsData, maintenanceMembers] = await Promise.all([
         import('@/lib/userStorage').then(m => m.fetchUsers()),
         import('@/lib/userStorage').then(m => m.fetchUserAssignments()),
+        fetchDepartmentMembersBySlug('maintenance'),
       ]);
       setUsers(usersData);
       setAssignments(assignmentsData);
+      setMaintenanceUserIds(new Set(maintenanceMembers.map(m => m.user_id)));
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -298,7 +306,14 @@ export default function UsersPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <RoleBadge role={user.role} />
+                    <div className="flex flex-col gap-1.5 items-start">
+                      <RoleBadge role={user.role} />
+                      {maintenanceUserIds.has(user.id) && (
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] uppercase tracking-wider py-0 px-1.5">
+                          Maintenance
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {getAssignmentDisplay(user.id)}

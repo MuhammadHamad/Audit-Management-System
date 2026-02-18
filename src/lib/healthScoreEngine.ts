@@ -400,8 +400,11 @@ const checkSupplierAutoSuspension = (supplierId: string, score: number): void =>
   updateSupplierSync(supplierId, { status: 'suspended' });
 
   // Notify Audit Manager
-  const auditManagers = getUsersByRole('audit_manager');
-  for (const manager of auditManagers) {
+  const hoqUsers = [
+    ...getUsersByRole('head_of_quality'),
+    ...getUsersByRole('audit_manager'),
+  ];
+  for (const manager of hoqUsers) {
     createNotification({
       user_id: manager.id,
       type: 'supplier_suspended',

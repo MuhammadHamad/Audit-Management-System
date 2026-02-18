@@ -10,14 +10,17 @@ import { fetchTemplateById } from '@/lib/templateSupabase';
 import {
   AuditResult,
   AuditItemResponse,
+  CAPAPriority,
   FindingSeverity,
   getAssigneeForCAPA,
   calculateDueDate,
 } from '@/lib/auditExecutionStorage';
 import { fetchAuditById, updateAudit } from '@/lib/auditSupabase';
 import { fetchUserIdsByRole, insertNotifications } from '@/lib/notificationsSupabase';
+import { fetchDepartmentUserIds, getDepartmentId, getEntityManagerId } from '@/lib/departmentSupabase';
+import { supabase } from '@/integrations/supabase/client';
 import { 
-  createSignedAuditEvidenceUrl,
+  createSignedAuditEvidenceUrls,
   fetchAuditResults,
   fetchCAPAsByAuditId,
   fetchFindingsByAuditId,
@@ -27,12 +30,14 @@ import {
   uploadAuditEvidenceFile,
 } from '@/lib/executionSupabase';
 
-interface ItemState {
+export interface AuditExecutionItemState {
   response: AuditItemResponse | null;
   evidenceFiles: File[];
   evidenceUrls: string[];
   evidencePaths: string[];
   manualFinding: string;
+  capaPriority: CAPAPriority | null;
+  capaDueDate: string | null; // YYYY-MM-DD
 }
 
 interface SectionScore {
@@ -61,7 +66,7 @@ export function useAuditExecution(auditId: string) {
   const queryClient = useQueryClient();
   const [audit, setAudit] = useState<Audit | null>(null);
   const [template, setTemplate] = useState<AuditTemplate | null>(null);
-  const [itemStates, setItemStates] = useState<Map<string, ItemState>>(new Map());
+  const [itemStates, setItemStates] = useState<Map<string, AuditExecutionItemState>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,7 +74,7 @@ export function useAuditExecution(auditId: string) {
   const [submittedFindings, setSubmittedFindings] = useState<any[]>([]);
   const [submittedCAPAs, setSubmittedCAPAs] = useState<any[]>([]);
 
-  const buildDraftSignature = (states: Map<string, ItemState>): string => {
+  const buildDraftSignature = (states: Map<string, AuditExecutionItemState>): string => {
     const rows: any[] = [];
     const keys = Array.from(states.keys()).sort();
     for (const k of keys) {
@@ -80,6 +85,8 @@ export function useAuditExecution(auditId: string) {
         s.response ?? null,
         (s.evidencePaths ?? []).slice().sort(),
         s.manualFinding ?? '',
+        s.capaPriority ?? null,
+        s.capaDueDate ?? null,
         (s.evidenceFiles ?? []).map((f) => `${f.name}:${f.size}:${f.lastModified}`),
       ]);
     }
@@ -93,37 +100,65 @@ export function useAuditExecution(auditId: string) {
       try {
         if (!auditId) return;
 
+        // Fetch audit, then independent data in parallel
         const loadedAudit = await fetchAuditById(auditId);
         if (!loadedAudit) return;
 
-        setAudit(loadedAudit);
+        const [loadedTemplate, existingResults] = await Promise.all([
+          fetchTemplateById(loadedAudit.template_id),
+          fetchAuditResults(auditId),
+        ]);
 
-        const loadedTemplate = await fetchTemplateById(loadedAudit.template_id);
         if (!loadedTemplate) return;
 
+        setAudit(loadedAudit);
         setTemplate(loadedTemplate);
 
-        // Load existing results
-        const existingResults = await fetchAuditResults(auditId);
-        const statesMap = new Map<string, ItemState>();
+        const statesMap = new Map<string, AuditExecutionItemState>();
+
+        // Collect all evidence paths to sign in one batch
+        const allPaths: { itemId: string; paths: string[] }[] = [];
+        for (const section of loadedTemplate.checklist_json.sections) {
+          for (const item of section.items) {
+            const existingResult = existingResults.find(r => r.item_id === item.id);
+            const evidencePaths = existingResult?.evidence_urls || [];
+            if (evidencePaths.length > 0) {
+              allPaths.push({ itemId: item.id, paths: evidencePaths });
+            }
+          }
+        }
+
+        // Batch sign all paths
+        const flatPaths = allPaths.flatMap(p => p.paths);
+        const signedUrls = flatPaths.length > 0 
+          ? await createSignedAuditEvidenceUrls(flatPaths)
+          : [];
+
+        // Map signed URLs back to items
+        let urlIdx = 0;
+        const signedUrlsByItem = new Map<string, string[]>();
+        for (const p of allPaths) {
+          signedUrlsByItem.set(p.itemId, signedUrls.slice(urlIdx, urlIdx + p.paths.length));
+          urlIdx += p.paths.length;
+        }
 
         // Initialize all items
         for (const section of loadedTemplate.checklist_json.sections) {
           for (const item of section.items) {
             const existingResult = existingResults.find(r => r.item_id === item.id);
             const evidencePaths = existingResult?.evidence_urls || [];
-            const evidenceUrls = await Promise.all(
-              evidencePaths.map((p) => createSignedAuditEvidenceUrl(p))
-            );
             statesMap.set(item.id, {
               response: existingResult?.response || null,
               evidenceFiles: [],
-              evidenceUrls,
+              evidenceUrls: signedUrlsByItem.get(item.id) || [],
               evidencePaths,
               manualFinding: '',
+              capaPriority: null,
+              capaDueDate: null,
             });
           }
         }
+
         setItemStates(statesMap);
         lastSavedSignatureRef.current = buildDraftSignature(statesMap);
 
@@ -175,6 +210,8 @@ export function useAuditExecution(auditId: string) {
         evidenceUrls: [],
         evidencePaths: [],
         manualFinding: '',
+        capaPriority: null,
+        capaDueDate: null,
       };
       newMap.set(itemId, { ...current, response });
       return newMap;
@@ -195,6 +232,8 @@ export function useAuditExecution(auditId: string) {
         evidenceUrls: [],
         evidencePaths: [],
         manualFinding: '',
+        capaPriority: null,
+        capaDueDate: null,
       };
       newMap.set(itemId, {
         ...current,
@@ -245,8 +284,44 @@ export function useAuditExecution(auditId: string) {
         evidenceUrls: [],
         evidencePaths: [],
         manualFinding: '',
+        capaPriority: null,
+        capaDueDate: null,
       };
       newMap.set(itemId, { ...current, manualFinding: note });
+      return newMap;
+    });
+  }, []);
+
+  const updateItemCAPAPriority = useCallback((itemId: string, priority: CAPAPriority | null) => {
+    setItemStates(prev => {
+      const newMap = new Map(prev);
+      const current = newMap.get(itemId) || {
+        response: null,
+        evidenceFiles: [],
+        evidenceUrls: [],
+        evidencePaths: [],
+        manualFinding: '',
+        capaPriority: null,
+        capaDueDate: null,
+      };
+      newMap.set(itemId, { ...current, capaPriority: priority });
+      return newMap;
+    });
+  }, []);
+
+  const updateItemCAPADueDate = useCallback((itemId: string, dueDate: string | null) => {
+    setItemStates(prev => {
+      const newMap = new Map(prev);
+      const current = newMap.get(itemId) || {
+        response: null,
+        evidenceFiles: [],
+        evidenceUrls: [],
+        evidencePaths: [],
+        manualFinding: '',
+        capaPriority: null,
+        capaDueDate: null,
+      };
+      newMap.set(itemId, { ...current, capaDueDate: dueDate });
       return newMap;
     });
   }, []);
@@ -283,7 +358,7 @@ export function useAuditExecution(auditId: string) {
   // Calculate points for an item
   const calculateItemPoints = useCallback((
     item: TemplateItem,
-    state: ItemState
+    state: AuditExecutionItemState
   ): number => {
     if (!state.response) return 0;
     const value = state.response.value;
@@ -590,6 +665,12 @@ export function useAuditExecution(auditId: string) {
     try {
       const { sections } = template.checklist_json;
 
+      const entityManagerId =
+        (await getEntityManagerId(audit.entity_type, audit.entity_id)) ??
+        (getAssigneeForCAPA(audit.entity_type, audit.entity_id) ?? null);
+
+      const templateIsMaintenance = (template.name || '').toLowerCase().includes('maintenance');
+
       const statesMap = await flushEvidenceUploads(audit.id, template);
 
       // Step 1 & 2: Save all results
@@ -613,17 +694,6 @@ export function useAuditExecution(auditId: string) {
 
       await upsertAuditResults(results);
 
-      // Update audit status
-      await updateAudit(audit.id, {
-        status: 'pending_verification',
-        completed_at: new Date().toISOString(),
-        score: scoreResult.totalScore,
-        pass_fail: scoreResult.passFail,
-      });
-
-      // Invalidate dashboard queries so Submitted count updates immediately
-      await queryClient.invalidateQueries({ queryKey: ['audits'] });
-
       // Generate & persist findings
       const findingsToInsert: Array<{
         id: string;
@@ -639,6 +709,44 @@ export function useAuditExecution(auditId: string) {
       }> = [];
 
       const findingByItemId = new Map<string, { findingId: string; severity: FindingSeverity; findingCode: string }>();
+      const deptSlugByFindingId = new Map<string, 'maintenance' | 'quality'>();
+
+      const isMaintenanceRelated = (sectionName: string, itemText: string, manualNote: string | undefined): boolean => {
+        const haystack = `${sectionName} ${itemText} ${manualNote ?? ''}`.toLowerCase();
+        const keywords = [
+          'maintenance',
+          'facility',
+          'well-maintained',
+          'equipment',
+          'refriger',
+          'freezer',
+          'cold display',
+          'hvac',
+          'air condition',
+          'ac ',
+          'ventilation',
+          'hood',
+          'electri',
+          'power',
+          'light',
+          'plumb',
+          'leak',
+          'drain',
+          'water',
+          'broken',
+          'repair',
+        ];
+        return keywords.some(k => haystack.includes(k));
+      };
+
+      const [maintenanceDeptId, qualityDeptId] = await Promise.all([
+        getDepartmentId('maintenance').catch(() => null),
+        getDepartmentId('quality').catch(() => null),
+      ]);
+
+      if (!qualityDeptId) {
+        throw new Error('Quality department is not configured. Run the departments migration/seed so CAPAs can be routed.');
+      }
 
       for (const section of sections) {
         for (const item of section.items) {
@@ -650,16 +758,40 @@ export function useAuditExecution(auditId: string) {
 
           if (!isFailed && !hasManualNote) continue;
 
+          const deptSlug: 'maintenance' | 'quality' = templateIsMaintenance
+            ? 'maintenance'
+            : isMaintenanceRelated(section.name, item.text, state?.manualFinding)
+              ? 'maintenance'
+              : 'quality';
+
           const severity = determineSeverity(item, section);
-          const description = hasManualNote
-            ? state!.manualFinding.trim()
-            : `Non-conformance: ${item.text}`;
+          
+          // Professional Auditor Phrasing
+          const findingDescription = hasManualNote
+            ? `Observation: ${state!.manualFinding.trim()}`
+            : `Observation: Non-compliance identified regarding "${item.text}"`;
+          
+          // Assertive CAPA Phrasing
+          const generateAssertiveAction = (text: string): string => {
+            const cleanText = text.toLowerCase().replace(/\?$/, '').replace(/^are |^is |^do |^does /, '');
+            if (cleanText.includes('clean')) return `Ensure ${cleanText} and sanitized according to standard operating procedures.`;
+            if (cleanText.includes('maintain') || cleanText.includes('repair')) return `Immediate maintenance/repair required for ${cleanText}.`;
+            if (cleanText.includes('record') || cleanText.includes('log')) return `Update and verify all ${cleanText} for accuracy and compliance.`;
+            if (cleanText.includes('training') || cleanText.includes('certif')) return `Conduct mandatory retraining and update ${cleanText} records.`;
+            if (cleanText.includes('stock') || cleanText.includes('availab')) return `Replenish ${cleanText} and establish minimum stock level monitoring.`;
+            return `Take immediate corrective action to ensure "${text}" meets compliance standards.`;
+          };
+
+          const capaDescription = hasManualNote
+            ? `Corrective Action Required: ${state!.manualFinding.trim()}`
+            : generateAssertiveAction(item.text);
 
           findingsToInsert.push({
             id: (() => {
               const id = crypto.randomUUID();
               const findingCode = generateFindingCode();
               findingByItemId.set(item.id, { findingId: id, severity, findingCode });
+              deptSlugByFindingId.set(id, deptSlug);
               return id;
             })(),
             finding_code: findingByItemId.get(item.id)!.findingCode,
@@ -668,31 +800,41 @@ export function useAuditExecution(auditId: string) {
             section_name: section.name,
             category: section.name,
             severity,
-            description,
+            description: findingDescription,
             evidence_urls: evidencePaths,
             status: 'open',
           });
+
+          // Store CAPA description to be used in next step
+          (findingsToInsert[findingsToInsert.length - 1] as any)._capaDescription = capaDescription;
         }
       }
 
       await insertFindings(findingsToInsert);
 
       const capasToInsert = findingsToInsert.map(f => {
-        const priority = f.severity;
-        const assignedTo = getAssigneeForCAPA(audit.entity_type, audit.entity_id);
-        const dueDate = calculateDueDate(f.severity);
+        const state = statesMap.get(f.item_id);
+        const effectivePriority = (state?.capaPriority ?? f.severity) as CAPAPriority;
+        const assignedTo = entityManagerId ?? undefined;
+        const dueDate = state?.capaDueDate ?? calculateDueDate(effectivePriority as any);
+        const deptSlug = deptSlugByFindingId.get(f.id) ?? 'quality';
+        if (deptSlug === 'maintenance' && !maintenanceDeptId) {
+          throw new Error('Maintenance department is not configured. Run the departments migration/seed so CAPAs can be routed to Maintenance.');
+        }
+        const deptId = deptSlug === 'maintenance' ? maintenanceDeptId : qualityDeptId;
         return {
           id: crypto.randomUUID(),
           capa_code: `CPA-${new Date().getFullYear()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
           finding_id: f.id,
           audit_id: audit.id,
+          department_id: deptId,
           entity_type: audit.entity_type,
           entity_id: audit.entity_id,
-          description: f.description,
+          description: (f as any)._capaDescription || f.description,
           assigned_to: assignedTo,
           due_date: dueDate,
-          status: 'pending_verification' as const,
-          priority: priority as any,
+          status: 'open' as const,
+          priority: effectivePriority as any,
           evidence_urls: f.evidence_urls,
           notes: undefined,
           sub_tasks: [],
@@ -701,11 +843,29 @@ export function useAuditExecution(auditId: string) {
 
       await insertCAPAs(capasToInsert);
 
+      // Update audit status only after findings/CAPAs are persisted
+      await updateAudit(audit.id, {
+        status: 'pending_verification',
+        completed_at: new Date().toISOString(),
+        score: scoreResult.totalScore,
+        pass_fail: scoreResult.passFail,
+      });
+
+      // Invalidate dashboard queries so lists and counts update immediately
+      await queryClient.invalidateQueries({ queryKey: ['audits'] });
+
       // Notifications (in-app)
       try {
-        const hoqUserIds = await fetchUserIdsByRole('audit_manager');
+        const hoqPrimary = await fetchUserIdsByRole('head_of_quality');
+        const hoqLegacy = hoqPrimary.length ? [] : await fetchUserIdsByRole('audit_manager');
+        const hoqUserIds = Array.from(new Set([...hoqPrimary, ...hoqLegacy]));
+        const maintenanceCount = findingsToInsert.filter(f => (deptSlugByFindingId.get(f.id) ?? 'quality') === 'maintenance').length;
+        const maintenanceUserIds = maintenanceCount > 0
+          ? await fetchDepartmentUserIds('maintenance').catch(() => [] as string[])
+          : [];
         const auditMsg = `Audit submitted\nAudit ${audit.audit_code} has been submitted and is pending verification.`;
         const capaMsg = `CAPA created\n${capasToInsert.length} CAPA item(s) were generated for audit ${audit.audit_code}.`;
+        const maintenanceMsg = `Maintenance issues detected\nAudit ${audit.audit_code} contains ${maintenanceCount} maintenance-related finding(s). Please review related CAPA(s).`;
 
         const rows = [
           ...hoqUserIds.map((uid) => ({
@@ -714,6 +874,18 @@ export function useAuditExecution(auditId: string) {
             message: auditMsg,
             link_to: `/audits/${audit.id}/verify`,
           })),
+          ...maintenanceUserIds.map((uid) => ({
+            user_id: uid,
+            type: 'maintenance_issues',
+            message: maintenanceMsg,
+            link_to: `/capa`,
+          })),
+          ...(entityManagerId ? [{
+            user_id: entityManagerId,
+            type: 'capa_assigned',
+            message: capaMsg,
+            link_to: `/capa`,
+          }] : []),
           ...capasToInsert
             .map((c) => c.assigned_to)
             .filter((uid): uid is string => !!uid)
@@ -759,9 +931,10 @@ export function useAuditExecution(auditId: string) {
         capaCount: capasToInsert.length,
       };
     } catch (e: any) {
+      const details = [e?.message, e?.details, e?.hint].filter(Boolean).join(' - ');
       return {
         success: false,
-        error: e?.message || 'Submission failed',
+        error: details || 'Submission failed',
       };
     } finally {
       setIsSubmitting(false);
@@ -812,6 +985,8 @@ export function useAuditExecution(auditId: string) {
     removeEvidenceFile,
     removeEvidenceUrl,
     updateManualFinding,
+    updateItemCAPAPriority,
+    updateItemCAPADueDate,
     saveDraft,
     submitAudit,
     validate,

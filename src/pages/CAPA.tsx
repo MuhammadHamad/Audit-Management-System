@@ -29,11 +29,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
-import { fetchCAPAs, fetchFindings } from '@/lib/executionSupabase';
+import { fetchCAPAs, fetchFindings, runCAPAEscalationLadder } from '@/lib/executionSupabase';
 import { fetchBCKs, fetchBranches, fetchSuppliers } from '@/lib/entitySupabase';
+import { getDepartmentId, isDepartmentMember } from '@/lib/departmentSupabase';
 import { format } from 'date-fns';
 
 const ITEMS_PER_PAGE = 25;
@@ -68,18 +70,41 @@ interface StaffTaskItem {
 export default function CAPAPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isRunningEscalation, setIsRunningEscalation] = useState(false);
 
   const isStaff = user?.role === 'staff';
-  const isManager = ['branch_manager', 'bck_manager', 'audit_manager'].includes(user?.role || '');
+  const isManager = ['branch_manager', 'bck_manager', 'head_of_quality', 'audit_manager', 'area_manager', 'regional_operational_manager', 'national_operational_manager'].includes(user?.role || '');
   const isReadOnly = ['regional_manager', 'super_admin'].includes(user?.role || '');
 
-  const needBranches = !!user && ['super_admin', 'audit_manager', 'regional_manager', 'branch_manager'].includes(user.role);
-  const needBCKs = !!user && ['super_admin', 'audit_manager', 'regional_manager', 'bck_manager'].includes(user.role);
-  const needSuppliers = !!user && ['super_admin', 'audit_manager'].includes(user.role);
+  const maintenanceAccessQuery = useQuery({
+    queryKey: ['dept_member', 'maintenance', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      if (!user) return { isMember: false, deptId: null as string | null };
+      const [isMember, deptId] = await Promise.all([
+        isDepartmentMember(user.id, 'maintenance'),
+        getDepartmentId('maintenance'),
+      ]);
+      return { isMember, deptId };
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const isMaintenanceMember = maintenanceAccessQuery.data?.isMember ?? false;
+  const maintenanceDeptId = maintenanceAccessQuery.data?.deptId ?? null;
+  const treatAsDeptUser = user?.role === 'staff' && isMaintenanceMember;
+
+  const showStaffTasksTable = isStaff && !treatAsDeptUser;
+
+  const needBranches = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager', 'regional_manager', 'branch_manager'].includes(user.role));
+  const needBCKs = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager', 'regional_manager', 'bck_manager'].includes(user.role));
+  const needSuppliers = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role));
 
   const capasQuery = useQuery({
     queryKey: ['capas', user?.id, user?.role],
@@ -97,7 +122,7 @@ export default function CAPAPage() {
       const findings = await fetchFindings();
       return findings;
     },
-    enabled: !!user && ['super_admin', 'audit_manager'].includes(user.role),
+    enabled: !!user && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role),
     staleTime: 30 * 1000,
   });
 
@@ -124,7 +149,7 @@ export default function CAPAPage() {
 
   const isLoading =
     capasQuery.isLoading ||
-    (findingsQuery.isLoading && ['super_admin', 'audit_manager'].includes(user?.role || '')) ||
+    (findingsQuery.isLoading && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user?.role || '')) ||
     branchesQuery.isLoading ||
     bcksQuery.isLoading ||
     suppliersQuery.isLoading;
@@ -144,7 +169,7 @@ export default function CAPAPage() {
     const supplierMap = new Map(suppliers.map(s => [s.id, s] as const));
 
     const staffTasks: StaffTaskItem[] = [];
-    if (user?.role === 'staff') {
+    if (user?.role === 'staff' && !treatAsDeptUser) {
       for (const capa of capas) {
         for (const st of capa.sub_tasks || []) {
           if (st.assigned_to_user_id === user.id) {
@@ -171,10 +196,14 @@ export default function CAPAPage() {
       filteredCapas = capas.filter(c => c.entity_type === 'branch');
     } else if (user?.role === 'bck_manager') {
       filteredCapas = capas.filter(c => c.entity_type === 'bck');
-    } else if (user?.role === 'audit_manager') {
+    } else if (user?.role === 'head_of_quality' || user?.role === 'audit_manager') {
       filteredCapas = capas.filter(c => c.entity_type === 'supplier' || c.status === 'escalated');
+    } else if (user?.role === 'area_manager' || user?.role === 'regional_operational_manager' || user?.role === 'national_operational_manager') {
+      filteredCapas = capas.filter(c => c.assigned_to === user.id);
     } else if (user?.role === 'regional_manager') {
       filteredCapas = capas.filter(c => c.entity_type === 'branch' || c.entity_type === 'bck');
+    } else if (treatAsDeptUser && maintenanceDeptId) {
+      filteredCapas = capas.filter(c => c.department_id === maintenanceDeptId);
     }
 
     const capaItems: CAPAListItem[] = filteredCapas.map(capa => {
@@ -198,6 +227,11 @@ export default function CAPAPage() {
         entityCode = s?.supplier_code || '';
       }
 
+      const effectiveDueDate =
+        (capa.escalation_level ?? 0) > 0 && capa.escalation_due_date
+          ? capa.escalation_due_date
+          : capa.due_date;
+
       return {
         capa,
         finding: finding
@@ -211,7 +245,7 @@ export default function CAPAPage() {
         entityName,
         entityCode,
         entityType: capa.entity_type,
-        isOverdue: capa.due_date < today && !['closed', 'approved'].includes(capa.status),
+        isOverdue: effectiveDueDate < today && !['closed', 'approved', 'expired'].includes(capa.status),
         subTaskProgress: {
           completed: subTasks.filter(st => st.status === 'completed').length,
           total: subTasks.length,
@@ -221,7 +255,12 @@ export default function CAPAPage() {
 
     const stats = {
       open: capaItems.filter(i => ['open', 'in_progress'].includes(i.capa.status)).length,
-      overdue: capaItems.filter(i => i.capa.due_date < today && !['closed', 'approved'].includes(i.capa.status)).length,
+      overdue: capaItems.filter(i => {
+        const effectiveDue = (i.capa.escalation_level ?? 0) > 0 && i.capa.escalation_due_date
+          ? i.capa.escalation_due_date
+          : i.capa.due_date;
+        return effectiveDue < today && !['closed', 'approved', 'expired'].includes(i.capa.status);
+      }).length,
       pendingVerification: capaItems.filter(i => i.capa.status === 'pending_verification').length,
       escalated: capaItems.filter(i => i.capa.status === 'escalated').length,
     };
@@ -231,7 +270,7 @@ export default function CAPAPage() {
       staffTasks: [] as StaffTaskItem[],
       stats,
     };
-  }, [bcks, branches, capas, findings, suppliers, user?.id, user?.role]);
+  }, [bcks, branches, capas, findings, maintenanceDeptId, suppliers, treatAsDeptUser, user?.id, user?.role]);
 
   // Filter items for managers
   const filteredCAPAItems = capaItems.filter(item => {
@@ -280,7 +319,7 @@ export default function CAPAPage() {
   });
 
   // Pagination
-  const totalItems = isStaff ? filteredStaffTasks.length : filteredCAPAItems.length;
+  const totalItems = showStaffTasksTable ? filteredStaffTasks.length : filteredCAPAItems.length;
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
   const paginatedCAPAItems = filteredCAPAItems.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -310,6 +349,7 @@ export default function CAPAPage() {
       rejected: 'bg-orange-100 text-orange-800',
       escalated: 'bg-red-100 text-red-800',
       closed: 'bg-green-100 text-green-800',
+      expired: 'bg-gray-200 text-gray-900',
       pending: 'bg-gray-100 text-gray-800',
       completed: 'bg-green-100 text-green-800',
     };
@@ -328,6 +368,9 @@ export default function CAPAPage() {
   const getRowClass = (item: CAPAListItem) => {
     if (item.capa.status === 'escalated') {
       return 'border-l-4 border-l-red-500 bg-orange-50';
+    }
+    if (item.capa.status === 'expired') {
+      return 'border-l-4 border-l-gray-700 bg-gray-50';
     }
     if (item.capa.status === 'rejected') {
       return 'bg-orange-50';
@@ -352,6 +395,7 @@ export default function CAPAPage() {
     { value: 'pending_verification', label: 'Pending Verification' },
     { value: 'rejected', label: 'Rejected' },
     { value: 'escalated', label: 'Escalated' },
+    { value: 'expired', label: 'Expired' },
     { value: 'closed', label: 'Closed' },
   ];
 
@@ -362,10 +406,33 @@ export default function CAPAPage() {
     { value: 'completed', label: 'Completed' },
   ];
 
+  const canRunEscalation = user?.role === 'super_admin' || user?.role === 'head_of_quality' || user?.role === 'audit_manager';
+
+  const handleRunEscalation = async () => {
+    if (!canRunEscalation) return;
+    setIsRunningEscalation(true);
+    try {
+      const res = await runCAPAEscalationLadder();
+      await queryClient.invalidateQueries({ queryKey: ['capas'] });
+      toast({
+        title: 'Escalation run complete',
+        description: `Escalated: ${res.escalatedCount}, Expired: ${res.expiredCount}`,
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Escalation run failed',
+        description: e?.message || 'Failed to run escalation ladder',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRunningEscalation(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Summary Cards (Managers Only) */}
-      {isManager && (
+      {(isManager || treatAsDeptUser) && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -400,7 +467,7 @@ export default function CAPAPage() {
             </CardContent>
           </Card>
 
-          {user?.role === 'audit_manager' && (
+          {(user?.role === 'head_of_quality' || user?.role === 'audit_manager') && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Escalated</CardTitle>
@@ -420,7 +487,7 @@ export default function CAPAPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={isStaff ? "Search tasks..." : "Search CAPA..."}
+            placeholder={showStaffTasksTable ? "Search tasks..." : "Search CAPA..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -431,12 +498,12 @@ export default function CAPAPage() {
             <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
-            {(isStaff ? staffStatusOptions : managerStatusOptions).map(opt => (
+            {(showStaffTasksTable ? staffStatusOptions : managerStatusOptions).map(opt => (
               <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {!isStaff && (
+        {!showStaffTasksTable && (
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
             <SelectTrigger className="w-[150px]">
               <SelectValue placeholder="All Priorities" />
@@ -450,12 +517,22 @@ export default function CAPAPage() {
             </SelectContent>
           </Select>
         )}
+
+        {canRunEscalation && (
+          <Button
+            variant="outline"
+            onClick={handleRunEscalation}
+            disabled={isRunningEscalation}
+          >
+            {isRunningEscalation ? 'Running...' : 'Run Escalation'}
+          </Button>
+        )}
       </div>
 
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          {isStaff ? (
+          {showStaffTasksTable ? (
             // Staff Task Table
             <Table>
               <TableHeader>

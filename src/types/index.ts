@@ -1,11 +1,15 @@
 export type UserRole = 
   | 'super_admin' 
+  | 'head_of_quality'
   | 'audit_manager' 
   | 'regional_manager' 
   | 'auditor' 
   | 'branch_manager' 
   | 'bck_manager' 
-  | 'staff';
+  | 'staff'
+  | 'area_manager'
+  | 'regional_operational_manager'
+  | 'national_operational_manager';
 
 export type UserStatus = 'active' | 'inactive';
 

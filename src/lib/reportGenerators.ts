@@ -112,7 +112,7 @@ interface UserScope {
 export const getUserScope = (userId: string, userRole: string): UserScope => {
   const assignments = getAssignmentsForUser(userId);
   
-  if (userRole === 'super_admin' || userRole === 'audit_manager') {
+  if (userRole === 'super_admin' || userRole === 'head_of_quality' || userRole === 'audit_manager') {
     return {
       branches: getBranches().map(b => b.id),
       bcks: getBCKs().map(b => b.id),

@@ -16,7 +16,6 @@ import {
   AlertTriangle, 
   ChevronRight,
   FileText,
-  AlertCircle,
   ClipboardList,
   MapPin
 } from 'lucide-react';
@@ -28,7 +27,7 @@ import {
   getUserById,
 } from '@/lib/entityStorage';
 import { getAssignmentsForUser } from '@/lib/userStorage';
-import { useAudits, useCAPAs, useIncidents } from '@/hooks/useDashboardData';
+import { useAudits, useCAPAs } from '@/hooks/useDashboardData';
 import { getHealthScores } from '@/lib/healthScoreEngine';
 import { formatDistanceToNow, format } from 'date-fns';
 
@@ -68,7 +67,6 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
 
   const { data: audits = [] } = useAudits();
   const { data: capas = [] } = useCAPAs();
-  const { data: incidents = [] } = useIncidents();
 
   // KPI calculations
   const kpiData = useMemo(() => {
@@ -92,12 +90,6 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
       c.entity_id === branchData.id
     ).length;
 
-    // Open Incidents
-    const openIncidents = incidents.filter(i =>
-      ['open', 'under_investigation'].includes(i.status) &&
-      i.entity_id === branchData.id
-    ).length;
-
     // Last audit score
     const approvedAudits = audits
       .filter(a => a.entity_id === branchData.id && a.status === 'approved')
@@ -107,10 +99,9 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
     return {
       auditsThisMonth,
       openCAPA,
-      openIncidents,
       lastAuditScore,
     };
-  }, [branchData, audits, capas, incidents]);
+  }, [branchData, audits, capas]);
 
   // Recent audits for chart/list
   const auditHistory = useMemo(() => {
@@ -221,7 +212,7 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
 
       {/* Section 2: KPI Cards */}
       {kpiData && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <Card>
             <CardContent className="py-4">
               <p className="text-2xl font-semibold text-primary">
@@ -239,17 +230,6 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
                 {kpiData.openCAPA}
               </p>
               <p className="text-xs text-muted-foreground">Open CAPA</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4">
-              <p className={cn(
-                "text-2xl font-semibold",
-                kpiData.openIncidents > 0 ? "text-warning" : "text-muted-foreground"
-              )}>
-                {kpiData.openIncidents}
-              </p>
-              <p className="text-xs text-muted-foreground">Open Incidents</p>
             </CardContent>
           </Card>
           <Card>
@@ -328,16 +308,6 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
               <div className="flex items-center gap-3">
                 <ClipboardList className="h-5 w-5 text-muted-foreground" />
                 <span className="font-medium">View CAPA</span>
-              </div>
-              <ChevronRight className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div 
-              className="flex items-center justify-between p-4 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
-              onClick={() => navigate('/incidents/create')}
-            >
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                <span className="font-medium">Report Incident</span>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>

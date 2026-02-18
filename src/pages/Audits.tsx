@@ -85,7 +85,7 @@ export default function AuditsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAuditor = user?.role === 'auditor';
-  const canManageAudits = !!user && ['super_admin', 'audit_manager'].includes(user.role);
+  const canManageAudits = !!user && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role);
 
   const { data: templates = [] } = useQuery({
     queryKey: ['templates'],

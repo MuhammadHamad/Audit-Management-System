@@ -56,7 +56,7 @@ const getReportTypesForRole = (role: string): { value: ReportType; label: string
     { value: 'auditor_performance', label: 'Auditor Performance Report', icon: <Users className="h-4 w-4" /> },
   ];
   
-  if (role === 'audit_manager' || role === 'super_admin') {
+  if (role === 'head_of_quality' || role === 'audit_manager' || role === 'super_admin') {
     return allTypes;
   }
   

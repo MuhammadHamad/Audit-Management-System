@@ -11,13 +11,29 @@ const roleConfig: Record<UserRole, { label: string; className: string }> = {
     label: 'Super Admin',
     className: 'bg-role-super-admin text-white',
   },
+  head_of_quality: {
+    label: 'Head of Quality',
+    className: 'bg-role-audit-manager text-white',
+  },
   audit_manager: {
-    label: 'Audit Manager',
+    label: 'Head of Quality',
     className: 'bg-role-audit-manager text-white',
   },
   regional_manager: {
     label: 'Regional Manager',
     className: 'bg-role-regional-manager text-white',
+  },
+  area_manager: {
+    label: 'Area Manager',
+    className: 'bg-role-regional-manager text-white',
+  },
+  regional_operational_manager: {
+    label: 'Regional Operational Manager',
+    className: 'bg-role-regional-manager text-white',
+  },
+  national_operational_manager: {
+    label: 'National Operational Manager',
+    className: 'bg-role-audit-manager text-white',
   },
   auditor: {
     label: 'Auditor',
