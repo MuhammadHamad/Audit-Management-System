@@ -124,6 +124,26 @@ export async function uploadCAPAEvidenceFile(
   return { path, signedUrl: data.signedUrl };
 }
 
+export async function uploadAuditEvidenceFilePath(
+  auditId: string,
+  itemId: string,
+  file: File
+): Promise<{ path: string }> {
+  const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+  const safeExt = (ext || 'bin').toLowerCase();
+  const objectName = `${crypto.randomUUID()}.${safeExt}`;
+  const path = `${auditId}/${itemId}/${objectName}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from('audit-evidence')
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (uploadError) throw uploadError;
+
+  return { path };
+}
+
 export async function createSignedCAPAEvidenceUrls(paths: string[]): Promise<string[]> {
   if (paths.length === 0) return [];
   const { data, error } = await supabase

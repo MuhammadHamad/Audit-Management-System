@@ -19,7 +19,7 @@ import { fetchAuditById, updateAudit } from '@/lib/auditSupabase';
 import { fetchUserIdsByRole, insertNotifications } from '@/lib/notificationsSupabase';
 import { fetchDepartmentUserIds, getDepartmentId, getEntityManagerId } from '@/lib/departmentSupabase';
 import { supabase } from '@/integrations/supabase/client';
-import { 
+import {
   createSignedAuditEvidenceUrls,
   fetchAuditResults,
   fetchCAPAsByAuditId,
@@ -27,7 +27,7 @@ import {
   insertCAPAs,
   insertFindings,
   upsertAuditResults,
-  uploadAuditEvidenceFile,
+  uploadAuditEvidenceFilePath,
 } from '@/lib/executionSupabase';
 
 export interface AuditExecutionItemState {
@@ -346,26 +346,78 @@ export function useAuditExecution(auditId: string) {
   const flushEvidenceUploads = useCallback(async (auditIdForPaths: string, templateForItems: AuditTemplate) => {
     const nextMap = new Map(itemStates);
 
+    const jobs: Array<{ itemId: string; file: File }> = [];
+
     for (const section of templateForItems.checklist_json.sections) {
       for (const item of section.items) {
         const current = nextMap.get(item.id);
         if (!current) continue;
         if (current.evidenceFiles.length === 0) continue;
 
-        const uploaded = await Promise.all(
-          current.evidenceFiles.map((file) => uploadAuditEvidenceFile(auditIdForPaths, item.id, file))
-        );
-
-        const newPaths = uploaded.map(u => u.path);
-        const newSignedUrls = uploaded.map(u => u.signedUrl);
-
-        nextMap.set(item.id, {
-          ...current,
-          evidenceFiles: [],
-          evidencePaths: [...current.evidencePaths, ...newPaths],
-          evidenceUrls: [...current.evidenceUrls, ...newSignedUrls],
-        });
+        for (const file of current.evidenceFiles) {
+          jobs.push({ itemId: item.id, file });
+        }
       }
+    }
+
+    if (jobs.length === 0) {
+      setItemStates(nextMap);
+      return nextMap;
+    }
+
+    const uploadedByJobIdx: Array<{ itemId: string; path: string } | null> = new Array(jobs.length).fill(null);
+
+    let cursor = 0;
+    const concurrency = 5;
+    const workers = Array.from({ length: Math.min(concurrency, jobs.length) }).map(async () => {
+      while (true) {
+        const idx = cursor;
+        cursor += 1;
+        if (idx >= jobs.length) return;
+        const job = jobs[idx];
+        const res = await uploadAuditEvidenceFilePath(auditIdForPaths, job.itemId, job.file);
+        uploadedByJobIdx[idx] = { itemId: job.itemId, path: res.path };
+      }
+    });
+
+    await Promise.all(workers);
+
+    const allNewPaths = uploadedByJobIdx
+      .map((r) => r?.path)
+      .filter((p): p is string => !!p);
+
+    const chunkSize = 50;
+    const signedUrls: string[] = [];
+    for (let i = 0; i < allNewPaths.length; i += chunkSize) {
+      const chunk = allNewPaths.slice(i, i + chunkSize);
+      const signed = await createSignedAuditEvidenceUrls(chunk);
+      signedUrls.push(...signed);
+    }
+
+    const nextSignedByPath = new Map<string, string>();
+    for (let i = 0; i < allNewPaths.length; i++) {
+      nextSignedByPath.set(allNewPaths[i], signedUrls[i] ?? allNewPaths[i]);
+    }
+
+    const updatesByItemId = new Map<string, { paths: string[]; urls: string[] }>();
+    for (const row of uploadedByJobIdx) {
+      if (!row) continue;
+      const signed = nextSignedByPath.get(row.path) ?? row.path;
+      const existing = updatesByItemId.get(row.itemId) ?? { paths: [], urls: [] };
+      existing.paths.push(row.path);
+      existing.urls.push(signed);
+      updatesByItemId.set(row.itemId, existing);
+    }
+
+    for (const [itemId, update] of updatesByItemId) {
+      const current = nextMap.get(itemId);
+      if (!current) continue;
+      nextMap.set(itemId, {
+        ...current,
+        evidenceFiles: [],
+        evidencePaths: [...current.evidencePaths, ...update.paths],
+        evidenceUrls: [...current.evidenceUrls, ...update.urls],
+      });
     }
 
     setItemStates(nextMap);
@@ -852,7 +904,7 @@ export function useAuditExecution(auditId: string) {
           due_date: dueDate,
           status: 'open' as const,
           priority: effectivePriority as any,
-          evidence_urls: f.evidence_urls,
+          evidence_urls: [],
           notes: undefined,
           sub_tasks: [],
         };

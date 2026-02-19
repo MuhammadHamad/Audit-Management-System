@@ -83,6 +83,7 @@ export default function CAPAPage() {
   const isManager = ['branch_manager', 'bck_manager', 'head_of_quality', 'audit_manager', 'area_manager', 'regional_operational_manager', 'national_operational_manager'].includes(user?.role || '');
   const isReadOnly = ['regional_manager', 'super_admin'].includes(user?.role || '');
   const canFilterEntityType = user?.role === 'head_of_quality' || user?.role === 'audit_manager';
+  const canVerify = ['super_admin', 'head_of_quality', 'audit_manager'].includes(user?.role || '');
 
   useEffect(() => {
     setCurrentPage(1);
@@ -377,23 +378,23 @@ export default function CAPAPage() {
 
   const getRowClass = (item: CAPAListItem) => {
     if (item.capa.status === 'escalated') {
-      return 'border-l-4 border-l-red-500 bg-orange-50';
+      return 'border-l-4 border-l-red-500 bg-orange-50 text-slate-900 dark:bg-orange-950/25 dark:text-slate-50';
     }
     if (item.capa.status === 'expired') {
-      return 'border-l-4 border-l-gray-700 bg-gray-50';
+      return 'border-l-4 border-l-gray-700 bg-gray-50 text-slate-900 dark:bg-slate-900/40 dark:text-slate-50';
     }
     if (item.capa.status === 'rejected') {
-      return 'bg-orange-50';
+      return 'bg-orange-50 text-slate-900 dark:bg-orange-950/25 dark:text-slate-50';
     }
     if (item.isOverdue) {
-      return 'bg-red-50';
+      return 'bg-red-50 text-slate-900 dark:bg-red-950/25 dark:text-slate-50';
     }
     return '';
   };
 
   const getStaffRowClass = (task: StaffTaskItem) => {
     if (task.isOverdue) {
-      return 'bg-red-50';
+      return 'bg-red-50 text-slate-900 dark:bg-red-950/25 dark:text-slate-50';
     }
     return '';
   };
@@ -725,13 +726,22 @@ export default function CAPAPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate(`/capa/${item.capa.id}`)}
-                        >
-                          View
-                        </Button>
+                        {canVerify && item.capa.status === 'pending_verification' ? (
+                          <Button
+                            size="sm"
+                            onClick={() => navigate(`/audits/${item.capa.audit_id}/verify?from=capa#findings-section`)}
+                          >
+                            Verify
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/capa/${item.capa.id}`)}
+                          >
+                            View
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))

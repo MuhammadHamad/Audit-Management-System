@@ -532,6 +532,8 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
   const { capa, audit, finding, entityInfo, auditResults, activities, userNameById } = bundle;
   const templateSections = extractTemplateSections(bundle.template);
 
+  const logoUrl = 'https://www.burgerizzr.com/favicon.png';
+
   const checklistTableRows = (auditResults || [])
     .map((r: any) => {
       const meta = findTemplateItem(templateSections, r.section_id, r.item_id);
@@ -621,6 +623,7 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             margin: 0;
             background: linear-gradient(180deg, #f1f5f9 0%, #ffffff 45%, #ffffff 100%);
             color: var(--text);
+            font-size: 13px;
           }
           .page {
             padding: 26px 28px;
@@ -653,8 +656,19 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             flex-direction: column;
             gap: 2px;
           }
-          .brand .title { font-size: 20px; font-weight: 800; letter-spacing: 0.2px; }
-          .brand .subtitle { font-size: 12px; color: var(--muted); }
+          .brandRow { display: flex; align-items: center; gap: 10px; }
+          .brandText { display: flex; flex-direction: column; justify-content: center; }
+          .logo {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #fff;
+            padding: 5px;
+            display: block;
+          }
+          .brand .title { font-size: 20px; font-weight: 800; letter-spacing: 0.2px; line-height: 1.1; }
+          .brand .subtitle { font-size: 12px; color: var(--muted); line-height: 1.2; margin-top: 1px; }
           .codepill {
             display: inline-flex;
             align-items: center;
@@ -667,7 +681,7 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             color: var(--muted);
           }
           .codepill b { color: var(--text); font-weight: 800; }
-          h2 { font-size: 12px; margin: 18px 0 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+          h2 { font-size: 13px; margin: 18px 0 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
           .muted { color: var(--muted); font-size: 12px; }
           .card {
             border: 1px solid var(--border);
@@ -678,14 +692,14 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             box-shadow: var(--shadow);
           }
           .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-          .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px; font-size: 12px; }
+          .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px; font-size: 13px; }
           .kv div { padding: 3px 0; }
           .k {
             color: var(--muted);
             font-weight: 700;
             letter-spacing: 0.02em;
           }
-          .details { font-size: 13px; margin-top: 6px; white-space: pre-wrap; line-height: 1.55; }
+          .details { font-size: 14px; margin-top: 6px; white-space: pre-wrap; line-height: 1.55; }
           .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
           .thumb { width: 100%; height: 132px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); background: var(--soft); }
           .ev-block { margin-top: 12px; break-inside: avoid; }
@@ -695,7 +709,7 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
           .table { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
           .th {
             text-align: left;
-            font-size: 11px;
+            font-size: 12px;
             color: var(--muted);
             background: var(--soft);
             padding: 10px 10px;
@@ -705,7 +719,7 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             text-transform: uppercase;
           }
           .td {
-            font-size: 12px;
+            font-size: 13px;
             padding: 10px 10px;
             border-bottom: 1px solid var(--border);
             vertical-align: top;
@@ -724,17 +738,19 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
             padding: 3px 10px;
             border-radius: 999px;
             border: 1px solid var(--border);
-            font-size: 12px;
+            font-size: 13px;
             color: var(--muted);
             background: #fff;
             font-weight: 700;
           }
+          .auditorEvidence { break-inside: avoid; }
           @media print {
             @page { margin: 0.45in; }
             body { background: #fff; }
             .page { padding: 0; max-width: none; margin: 0; }
             .card { break-inside: avoid; }
             .topbar { break-inside: avoid; }
+            .auditorEvidence { break-before: page; page-break-before: always; }
           }
         </style>
       </head>
@@ -742,8 +758,13 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
         <div class="page">
           <div class="topbar">
             <div class="brand">
-              <div class="title">CAPA Report</div>
-              <div class="subtitle">Generated ${escapeHtml(new Date().toLocaleString())}</div>
+              <div class="brandRow">
+                <img class="logo" src="${logoUrl}" alt="Burgerizzr" />
+                <div class="brandText">
+                  <div class="title">Burgerizzr</div>
+                  <div class="subtitle">CAPA Report · Generated ${escapeHtml(new Date().toLocaleString())}</div>
+                </div>
+              </div>
             </div>
             <div class="codepill">CAPA: <b>${escapeHtml(capa.capa_code || '')}</b></div>
           </div>
@@ -813,8 +834,9 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
           ` : ''}
 
           ${hasAuditorEvidence ? `
-            <h2>Auditor Evidence</h2>
-            <div class="card">
+            <div class="auditorEvidence">
+              <h2>Auditor Evidence</h2>
+              <div class="card">
               <div class="muted">Evidence captured during audit (before corrective action).</div>
               ${findingEvidenceHtml ? `
                 <div style="height:10px"></div>
@@ -831,6 +853,7 @@ export function openCAPAReportPrintView(bundle: ExportBundle): void {
                 ${auditEvidenceBlocksHtml}
               ` : ''}
               ${!findingEvidenceHtml && !auditEvidenceBlocksHtml ? '<div class="muted">No auditor evidence available.</div>' : ''}
+              </div>
             </div>
           ` : ''}
 

@@ -173,6 +173,13 @@ export default function CAPADetailPage() {
         return;
       }
 
+      const sanitizeCapaEvidencePaths = (paths: unknown): string[] => {
+        if (!Array.isArray(paths)) return [];
+        return (paths as unknown[])
+          .filter((p): p is string => typeof p === 'string')
+          .filter((p) => p.split('/').length === 2);
+      };
+
       // Parallelize independent data fetches after getting initial CAPA data
       const [usersData, assignmentsData, auditData, activityData] = await Promise.all([
         fetchUsers(),
@@ -186,7 +193,7 @@ export default function CAPADetailPage() {
       setAudit(auditData);
 
       // Sign main evidence and sub-task evidence in one single batch call
-      const evidencePaths = capaData.evidence_urls || [];
+      const evidencePaths = sanitizeCapaEvidencePaths(capaData.evidence_urls);
       setCapaEvidencePaths(evidencePaths);
 
       const allSubTaskPaths = (capaData.sub_tasks || []).flatMap(st => Array.isArray(st.evidence_urls) ? st.evidence_urls : []);
@@ -594,6 +601,10 @@ export default function CAPADetailPage() {
     capa.status !== 'expired' &&
     (!isEscalationManagerRole || capa.assigned_to === user.id);
 
+  const canVerifyViaAuditDetail = !!user && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role);
+
+  const canEditCorrectiveAction = canManage && !canVerifyViaAuditDetail;
+
   // Staff view: simplified view showing only their sub-task (if they have one)
   if (isStaff && staffSubTask) {
     return (
@@ -863,9 +874,26 @@ export default function CAPADetailPage() {
           <CardTitle>Corrective Action & Evidence</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          {canVerifyViaAuditDetail && (
+            <div className="p-4 border rounded-lg bg-muted/20">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium">Verification requires full audit context</p>
+                  <p className="text-sm text-muted-foreground">Open the audit verification screen to review auditor checklist/evidence and branch manager evidence together.</p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => navigate(`/audits/${capa.audit_id}/verify?from=capa#findings-section`)}
+                >
+                  Open Verification
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label htmlFor="notes">Corrective action taken</Label>
-            {canManage ? (
+            {canEditCorrectiveAction ? (
               <Textarea
                 id="notes"
                 value={notes}
@@ -918,7 +946,7 @@ export default function CAPADetailPage() {
                       </a>
                     )}
 
-                    {canManage && (
+                    {canEditCorrectiveAction && (
                       <button
                         onClick={() => handleRemoveEvidence(url)}
                         className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -931,7 +959,7 @@ export default function CAPADetailPage() {
               </div>
             )}
 
-            {canManage && (
+            {canEditCorrectiveAction && (
               <label className="block mt-2">
                 <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-muted-foreground/50 transition-colors">
                   <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />

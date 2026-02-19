@@ -280,10 +280,22 @@ export default function VerificationDetail() {
       setTemplateName('');
       setSections([]);
 
+      const sanitizeCapaEvidencePaths = (paths: unknown): string[] => {
+        if (!Array.isArray(paths)) return [];
+        return (paths as unknown[])
+          .filter((p): p is string => typeof p === 'string')
+          .filter((p) => p.split('/').length === 2);
+      };
+
+      const sanitizedAuditCapas = auditCapas.map((c) => ({
+        ...c,
+        evidence_urls: sanitizeCapaEvidencePaths(c.evidence_urls),
+      }));
+
       // Sign all evidence and fetch activities in parallel
       const allEvidencePaths: string[] = [
         ...auditFindings.flatMap(f => f.evidence_urls || []),
-        ...auditCapas.flatMap(c => c.evidence_urls || []),
+        ...sanitizedAuditCapas.flatMap(c => c.evidence_urls || []),
         ...results.flatMap(r => r.evidence_urls || [])
       ];
 
@@ -291,7 +303,7 @@ export default function VerificationDetail() {
         allEvidencePaths.length > 0 
           ? createSignedAuditEvidenceUrls(allEvidencePaths).catch(() => createSignedCAPAEvidenceUrls(allEvidencePaths)).catch(() => allEvidencePaths)
           : Promise.resolve([]),
-        fetchCAPAActivitiesByCAPAIds(auditCapas.map(c => c.id))
+        fetchCAPAActivitiesByCAPAIds(sanitizedAuditCapas.map(c => c.id))
       ]);
 
       const signedUrlMap = new Map<string, string>();
@@ -304,7 +316,7 @@ export default function VerificationDetail() {
         evidence_urls: getSigned(f.evidence_urls || [])
       }));
 
-      const signedCapas = auditCapas.map(c => ({
+      const signedCapas = sanitizedAuditCapas.map(c => ({
         ...c,
         evidence_urls: getSigned(c.evidence_urls || [])
       }));

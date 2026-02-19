@@ -174,6 +174,13 @@ export async function fetchCAPAVerificationQueue(params: {
 }): Promise<CAPAVerificationQueueItem[]> {
   if (!['super_admin', 'head_of_quality', 'audit_manager'].includes(params.userRole)) return [];
 
+  const sanitizeCapaEvidencePaths = (paths: unknown): string[] => {
+    if (!Array.isArray(paths)) return [];
+    return (paths as unknown[])
+      .filter((p): p is string => typeof p === 'string')
+      .filter((p) => p.split('/').length === 2);
+  };
+
   const { data: capaRows, error: capaErr } = await supabase
     .from('capa')
     .select('*')
@@ -182,7 +189,7 @@ export async function fetchCAPAVerificationQueue(params: {
 
   if (capaErr) throw capaErr;
 
-  const actionable = (capaRows ?? []).filter(c => (c.evidence_urls || []).length > 0);
+  const actionable = (capaRows ?? []).filter(c => sanitizeCapaEvidencePaths(c.evidence_urls).length > 0);
   if (actionable.length === 0) return [];
 
   const auditIds = Array.from(new Set(actionable.map(c => c.audit_id).filter((id): id is string => !!id)));
@@ -213,13 +220,14 @@ export async function fetchCAPAVerificationQueue(params: {
   const userMap = new Map<string, User>((finalUsersRes.data ?? []).map(u => [u.id, u as User]));
 
   const items: CAPAVerificationQueueItem[] = actionable.map(capaRow => {
+    const evidencePaths = sanitizeCapaEvidencePaths(capaRow.evidence_urls);
     const capa: CAPA = {
       ...capaRow,
       entity_type: capaRow.entity_type as "branch" | "bck" | "supplier",
       assigned_to: capaRow.assigned_to || '',
       status: capaRow.status as CAPAStatus,
       priority: capaRow.priority as CAPAPriority,
-      evidence_urls: Array.isArray(capaRow.evidence_urls) ? (capaRow.evidence_urls as string[]) : [],
+      evidence_urls: evidencePaths,
       sub_tasks: Array.isArray(capaRow.sub_tasks) ? (capaRow.sub_tasks as unknown as SubTask[]) : [],
     };
 
@@ -259,7 +267,7 @@ export async function fetchCAPAVerificationQueue(params: {
       entityType: entityTypeLabel,
       auditorName,
       assignedToName,
-      evidenceCount: (capa.evidence_urls || []).length,
+      evidenceCount: evidencePaths.length,
       submittedAt: capa.updated_at || capa.created_at,
     };
   });
