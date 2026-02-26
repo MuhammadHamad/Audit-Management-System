@@ -155,7 +155,7 @@ export const CriticalAlertsStrip: React.FC<CriticalAlertsStripProps> = ({ alerts
 
   return (
     <div className="bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 rounded-lg p-4">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-5 w-5 text-red-600" />
           <span className="font-semibold text-red-600 dark:text-red-400">Critical Alerts</span>
@@ -205,10 +205,10 @@ const HeatmapTile: React.FC<HeatmapTileProps> = ({ entity }) => {
         <TooltipTrigger asChild>
           <div className="flex flex-col items-center gap-1">
             <div 
-              className="w-12 h-12 rounded flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-white/50 transition-all"
+              className="w-10 h-10 sm:w-11 sm:h-11 lg:w-12 lg:h-12 rounded flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-white/50 transition-all"
               style={{ backgroundColor: threshold.color }}
             >
-              <span className="text-white text-sm font-semibold">
+              <span className="text-white text-xs sm:text-sm font-semibold">
                 {displayScore !== null ? Math.round(displayScore) : '—'}
               </span>
             </div>
@@ -242,7 +242,7 @@ interface HealthScoreHeatmapProps {
 
 export const HealthScoreHeatmap: React.FC<HealthScoreHeatmapProps> = ({ regions }) => {
   return (
-    <Card className="h-full">
+    <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Health Score Heatmap</CardTitle>
       </CardHeader>
@@ -257,13 +257,10 @@ export const HealthScoreHeatmap: React.FC<HealthScoreHeatmapProps> = ({ regions 
                   <span className="font-semibold text-sm">{region.name}</span>
                   <span className="text-xs text-muted-foreground ml-2">{region.code}</span>
                 </div>
-                <div className="flex items-start gap-1 flex-wrap">
+                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(2.75rem,1fr))] sm:[grid-template-columns:repeat(auto-fit,minmax(3rem,1fr))]">
                   {region.branches.map(branch => (
                     <HeatmapTile key={branch.id} entity={branch} />
                   ))}
-                  {region.branches.length > 0 && region.bcks.length > 0 && (
-                    <div className="w-px h-12 bg-border mx-2" />
-                  )}
                   {region.bcks.map(bck => (
                     <HeatmapTile key={bck.id} entity={bck} />
                   ))}
@@ -271,7 +268,7 @@ export const HealthScoreHeatmap: React.FC<HealthScoreHeatmapProps> = ({ regions 
               </div>
             ))}
             {/* Legend */}
-            <div className="flex items-center gap-4 pt-4 border-t text-xs">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-4 border-t text-xs">
               <div className="flex items-center gap-1">
                 <div className="w-4 h-4 rounded" style={{ backgroundColor: 'hsl(160, 84%, 39%)' }} />
                 <span className="text-muted-foreground">Excellent (85-100)</span>
@@ -631,7 +628,7 @@ export const IncidentSummary: React.FC<IncidentSummaryProps> = ({ data }) => {
 
         {/* Legend */}
         {totalOpen > 0 && (
-          <div className="flex justify-center gap-4">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
             {segments.map(seg => (
               <div key={seg.severity} className="flex items-center gap-1 text-xs">
                 <div className="w-2 h-2 rounded" style={{ backgroundColor: seg.color }} />

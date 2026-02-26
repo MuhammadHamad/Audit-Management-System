@@ -16,7 +16,6 @@ import {
   HealthScoreHeatmap,
   ActiveAuditFeed,
   CAPAOverview,
-  IncidentSummary,
   AuditorWorkloadTable,
 } from '@/components/dashboard/AuditManagerDashboard';
 import { RegionalManagerDashboard } from '@/components/dashboard/RegionalManagerDashboard';
@@ -28,10 +27,9 @@ import {
   calculateHeatmapData,
   calculateActiveAuditFeed,
   calculateCAPAOverview,
-  calculateIncidentSummary,
   calculateAuditorWorkload,
 } from '@/lib/dashboardStatsSupabase';
-import { useAudits, useCAPAs, useFindings, useIncidents, useBranches, useBCKs, useSuppliers, useRegions } from '@/hooks/useDashboardData';
+import { useAudits, useCAPAs, useFindings, useBranches, useBCKs, useSuppliers, useRegions } from '@/hooks/useDashboardData';
 import { getUsersByRole } from '@/lib/entityStorage';
 import { getEntityName } from '@/lib/auditStorage';
 import { AuditorDashboard } from '@/components/dashboard/AuditorDashboard';
@@ -120,7 +118,6 @@ function AuditManagerDashboardView({
   const { data: audits = [] } = useAudits();
   const { data: capas = [] } = useCAPAs();
   const { data: findings = [] } = useFindings();
-  const { data: incidents = [] } = useIncidents();
   const { data: branches = [] } = useBranches();
   const { data: bcks = [] } = useBCKs();
   const { data: suppliers = [] } = useSuppliers();
@@ -157,8 +154,8 @@ function AuditManagerDashboardView({
   );
 
   const criticalAlerts = useMemo(() => 
-    calculateCriticalAlerts(audits, findings, capas, incidents, suppliers, getEntityName),
-    [audits, findings, capas, incidents, suppliers]
+    calculateCriticalAlerts(audits, findings, capas, [], suppliers, getEntityName),
+    [audits, findings, capas, suppliers]
   );
 
   const heatmapData = useMemo(() => 
@@ -176,11 +173,6 @@ function AuditManagerDashboardView({
     [capas]
   );
 
-  const incidentSummary = useMemo(() => 
-    calculateIncidentSummary(incidents, getEntityName),
-    [incidents]
-  );
-
   const auditorWorkload = useMemo(() => {
     const auditors = getUsersByRole('auditor');
     return calculateAuditorWorkload(audits, auditors, { completedWindowDays: windowDays });
@@ -188,9 +180,9 @@ function AuditManagerDashboardView({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
         <Select value={auditWindow} onValueChange={(v) => setAuditWindow(v as any)}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Audit window" />
           </SelectTrigger>
           <SelectContent>
@@ -221,14 +213,9 @@ function AuditManagerDashboardView({
         </div>
       </div>
 
-      {/* Band 4: CAPA + Incidents */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
-          <CAPAOverview data={capaOverview} />
-        </div>
-        <div className="lg:col-span-2">
-          <IncidentSummary data={incidentSummary} />
-        </div>
+      {/* Band 4: CAPA */}
+      <div>
+        <CAPAOverview data={capaOverview} />
       </div>
 
       {/* Band 5: Auditor Workload */}

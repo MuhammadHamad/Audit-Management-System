@@ -420,6 +420,15 @@ export default function TemplateBuilderPage() {
                 if (updates.type === 'photo' && newItem.evidence_required === 'none') {
                   newItem.evidence_required = 'required_1';
                 }
+                if (updates.type && updates.type !== item.type) {
+                  if (updates.type === 'rating') {
+                    newItem.points = 5;
+                  } else if (updates.type === 'numeric') {
+                    newItem.points = 10;
+                  } else {
+                    newItem.points = 5;
+                  }
+                }
                 return newItem;
               }
               return item;
@@ -538,6 +547,14 @@ export default function TemplateBuilderPage() {
     return option?.label || type;
   };
 
+  const getItemTypeLabelWithConfig = (item: TemplateItem) => {
+    if (item.type === 'rating') {
+      const scale = Math.max(1, item.points || 5);
+      return `Rating 1-${scale}`;
+    }
+    return getItemTypeLabel(item.type);
+  };
+
   const getEvidenceLabel = (evidence: string) => {
     if (evidence === 'none') return null;
     const option = EVIDENCE_OPTIONS.find(o => o.value === evidence);
@@ -547,8 +564,8 @@ export default function TemplateBuilderPage() {
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-background px-6 py-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b bg-background px-4 sm:px-6 py-4">
+        <div className="flex items-center gap-4 min-w-0">
           <Button variant="ghost" size="sm" onClick={handleBack}>
             <ChevronLeft className="mr-1 h-4 w-4" />
             Templates
@@ -558,13 +575,13 @@ export default function TemplateBuilderPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Template Name"
-              className="w-64 text-lg font-semibold"
+              className="w-full sm:w-64 text-lg font-semibold"
             />
           ) : (
             <h1 className="text-lg font-semibold">New Template</h1>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 w-full sm:w-auto">
           <Button variant="outline" onClick={handleSaveDraft}>
             Save Draft
           </Button>
@@ -580,7 +597,7 @@ export default function TemplateBuilderPage() {
 
       {/* Active template warning */}
       {isEditMode && originalTemplate?.status === 'active' && (
-        <Alert className="mx-6 mt-4 border-blue-200 bg-blue-50">
+        <Alert className="mx-4 sm:mx-6 mt-4 border-blue-200 bg-blue-50">
           <AlertTriangle className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-800">
             You are editing an active template. Changes will create version {(originalTemplate.version + 1)}.
@@ -589,9 +606,9 @@ export default function TemplateBuilderPage() {
       )}
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col md:flex-row md:overflow-hidden">
         {/* Left Panel - Builder */}
-        <div className="w-80 flex-shrink-0 overflow-y-auto border-r bg-background p-4">
+        <div className="w-full md:w-80 md:flex-shrink-0 overflow-y-auto md:border-r border-b md:border-b-0 bg-background p-4">
           {/* Metadata */}
           <div className="space-y-4">
             <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Template Settings</h3>
@@ -793,14 +810,20 @@ export default function TemplateBuilderPage() {
                                 </Select>
                               </div>
                               <div>
-                                <Label className="text-xs">Points</Label>
+                                <Label className="text-xs">
+                                  {item.type === 'rating'
+                                    ? 'Scale'
+                                    : item.type === 'numeric'
+                                      ? 'Max Value'
+                                      : 'Points'}
+                                </Label>
                                 <Input
                                   type="number"
                                   value={item.points}
                                   onChange={(e) => updateItem(section.id, item.id, { points: Number(e.target.value) })}
                                   className="h-8 text-xs"
                                   min={1}
-                                  max={100}
+                                  max={item.type === 'rating' ? 10 : 100}
                                 />
                               </div>
                               <div>
@@ -871,8 +894,8 @@ export default function TemplateBuilderPage() {
         </div>
 
         {/* Right Panel - Preview */}
-        <div className="flex-1 overflow-y-auto bg-muted/30 p-6">
-          <div className="mx-auto max-w-2xl">
+        <div className="flex-1 min-w-0 overflow-y-auto bg-muted/30 p-4 sm:p-6">
+          <div className="mx-auto w-full max-w-2xl">
             {/* Preview Header */}
             <div className="mb-6 rounded-lg border bg-background p-6">
               <div className="flex items-start justify-between">
@@ -923,7 +946,7 @@ export default function TemplateBuilderPage() {
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
                               <Badge variant="secondary" className="text-xs">
-                                {getItemTypeLabel(item.type)}
+                                {getItemTypeLabelWithConfig(item)}
                               </Badge>
                               {item.critical && (
                                 <Badge variant="destructive" className="text-xs">

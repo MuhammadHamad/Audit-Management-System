@@ -6,7 +6,7 @@ interface RoleBadgeProps {
   className?: string;
 }
 
-const roleConfig: Record<UserRole, { label: string; className: string }> = {
+const roleConfig: Record<UserRole, { label: string; shortLabel?: string; className: string }> = {
   super_admin: {
     label: 'Super Admin',
     className: 'bg-role-super-admin text-white',
@@ -29,10 +29,12 @@ const roleConfig: Record<UserRole, { label: string; className: string }> = {
   },
   regional_operational_manager: {
     label: 'Regional Operational Manager',
+    shortLabel: 'ROM',
     className: 'bg-role-regional-manager text-white',
   },
   national_operational_manager: {
     label: 'National Operational Manager',
+    shortLabel: 'NOM',
     className: 'bg-role-audit-manager text-white',
   },
   auditor: {
@@ -59,12 +61,19 @@ export function RoleBadge({ role, className }: RoleBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+        'inline-flex items-center rounded-md border border-white/15 px-2 py-0.5 text-xs font-semibold text-white',
         config.className,
         className
       )}
     >
-      {config.label}
+      {config.shortLabel ? (
+        <>
+          <span className="lg:hidden">{config.shortLabel}</span>
+          <span className="hidden lg:inline">{config.label}</span>
+        </>
+      ) : (
+        config.label
+      )}
     </span>
   );
 }

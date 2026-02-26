@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Search, 
   AlertCircle, 
@@ -33,7 +33,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
-import { fetchCAPAs, fetchFindings, runCAPAEscalationLadder } from '@/lib/executionSupabase';
+import { fetchCAPAs, fetchFindings, forceEscalateCAPA, runCAPAEscalationLadder, updateCAPA } from '@/lib/executionSupabase';
 import { fetchBCKs, fetchBranches, fetchSuppliers } from '@/lib/entitySupabase';
 import { getDepartmentId, isDepartmentMember } from '@/lib/departmentSupabase';
 import { format } from 'date-fns';
@@ -69,11 +69,23 @@ interface StaffTaskItem {
 
 export default function CAPAPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const fromUrl = searchParams.get('status');
+    if (fromUrl) return fromUrl;
+
+    const role = user?.role;
+    const isEscalationRole =
+      role === 'area_manager' ||
+      role === 'regional_operational_manager' ||
+      role === 'national_operational_manager';
+
+    return isEscalationRole ? 'active' : 'all';
+  });
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -109,9 +121,43 @@ export default function CAPAPage() {
 
   const showStaffTasksTable = isStaff && !treatAsDeptUser;
 
-  const needBranches = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager', 'regional_manager', 'branch_manager'].includes(user.role));
-  const needBCKs = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager', 'regional_manager', 'bck_manager'].includes(user.role));
-  const needSuppliers = !!user && (treatAsDeptUser || ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role));
+  const needBranches =
+    !!user &&
+    (treatAsDeptUser ||
+      [
+        'super_admin',
+        'head_of_quality',
+        'audit_manager',
+        'regional_manager',
+        'branch_manager',
+        'area_manager',
+        'regional_operational_manager',
+        'national_operational_manager',
+      ].includes(user.role));
+  const needBCKs =
+    !!user &&
+    (treatAsDeptUser ||
+      [
+        'super_admin',
+        'head_of_quality',
+        'audit_manager',
+        'regional_manager',
+        'bck_manager',
+        'area_manager',
+        'regional_operational_manager',
+        'national_operational_manager',
+      ].includes(user.role));
+  const needSuppliers =
+    !!user &&
+    (treatAsDeptUser ||
+      [
+        'super_admin',
+        'head_of_quality',
+        'audit_manager',
+        'area_manager',
+        'regional_operational_manager',
+        'national_operational_manager',
+      ].includes(user.role));
 
   const capasQuery = useQuery({
     queryKey: ['capas', user?.id, user?.role],
@@ -168,7 +214,15 @@ export default function CAPAPage() {
   const suppliers = suppliersQuery.data ?? [];
 
   const { capaItems, staffTasks, stats } = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const isDateOverdue = (dateStr: string | null | undefined): boolean => {
+      if (!dateStr) return false;
+      const ms = new Date(dateStr).getTime();
+      if (!Number.isFinite(ms)) return false;
+      return ms < todayStart.getTime();
+    };
 
     const findingMap = new Map(findings.map(f => [f.id, f] as const));
     const branchMap = new Map(branches.map(b => [b.id, b] as const));
@@ -186,7 +240,7 @@ export default function CAPAPage() {
               capaPriority: capa.priority,
               capaDueDate: capa.due_date,
               subTask: st,
-              isOverdue: capa.due_date < today && st.status !== 'completed',
+              isOverdue: isDateOverdue(capa.due_date) && st.status !== 'completed',
             });
           }
         }
@@ -252,7 +306,7 @@ export default function CAPAPage() {
         entityName,
         entityCode,
         entityType: capa.entity_type,
-        isOverdue: effectiveDueDate < today && !['closed', 'approved', 'expired'].includes(capa.status),
+        isOverdue: isDateOverdue(effectiveDueDate) && !['closed', 'approved', 'expired'].includes(capa.status),
         subTaskProgress: {
           completed: subTasks.filter(st => st.status === 'completed').length,
           total: subTasks.length,
@@ -266,7 +320,7 @@ export default function CAPAPage() {
         const effectiveDue = (i.capa.escalation_level ?? 0) > 0 && i.capa.escalation_due_date
           ? i.capa.escalation_due_date
           : i.capa.due_date;
-        return effectiveDue < today && !['closed', 'approved', 'expired'].includes(i.capa.status);
+        return isDateOverdue(effectiveDue) && !['closed', 'approved', 'expired'].includes(i.capa.status);
       }).length,
       pendingVerification: capaItems.filter(i => i.capa.status === 'pending_verification').length,
       escalated: capaItems.filter(i => i.capa.status === 'escalated').length,
@@ -298,8 +352,12 @@ export default function CAPAPage() {
     }
 
     // Status filter
-    if (statusFilter !== 'all' && item.capa.status !== statusFilter) {
-      return false;
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'active') {
+        if (['closed', 'approved', 'expired'].includes(item.capa.status)) return false;
+      } else if (item.capa.status !== statusFilter) {
+        return false;
+      }
     }
 
     // Priority filter
@@ -381,7 +439,7 @@ export default function CAPAPage() {
       return 'border-l-4 border-l-red-500 bg-orange-50 text-slate-900 dark:bg-orange-950/25 dark:text-slate-50';
     }
     if (item.capa.status === 'expired') {
-      return 'border-l-4 border-l-gray-700 bg-gray-50 text-slate-900 dark:bg-slate-900/40 dark:text-slate-50';
+      return 'border-l-4 border-l-gray-500 bg-gray-50 text-slate-900 dark:bg-gray-950/25 dark:text-slate-50';
     }
     if (item.capa.status === 'rejected') {
       return 'bg-orange-50 text-slate-900 dark:bg-orange-950/25 dark:text-slate-50';
@@ -401,6 +459,7 @@ export default function CAPAPage() {
 
   const managerStatusOptions = [
     { value: 'all', label: 'All Statuses' },
+    { value: 'active', label: 'Active' },
     { value: 'open', label: 'Open' },
     { value: 'in_progress', label: 'In Progress' },
     { value: 'pending_verification', label: 'Pending Verification' },
@@ -417,13 +476,54 @@ export default function CAPAPage() {
     { value: 'completed', label: 'Completed' },
   ];
 
-  const canRunEscalation = user?.role === 'super_admin' || user?.role === 'head_of_quality' || user?.role === 'audit_manager';
+  useEffect(() => {
+    const paramStatus = searchParams.get('status');
+    const role = user?.role;
+    const isEscalationRole =
+      role === 'area_manager' ||
+      role === 'regional_operational_manager' ||
+      role === 'national_operational_manager';
+
+    const nextStatus = paramStatus ?? (isEscalationRole ? 'active' : 'all');
+    if (nextStatus !== statusFilter) {
+      setStatusFilter(nextStatus);
+    }
+  }, [searchParams, statusFilter, user?.role]);
+
+  useEffect(() => {
+    const allowedStatuses = new Set(
+      (showStaffTasksTable ? staffStatusOptions : managerStatusOptions).map(o => o.value)
+    );
+
+    if (!allowedStatuses.has(statusFilter)) {
+      setStatusFilter('all');
+      const next = new URLSearchParams(searchParams);
+      next.delete('status');
+      setSearchParams(next, { replace: true });
+    }
+  }, [showStaffTasksTable, statusFilter, searchParams, setSearchParams]);
+
+  const canRunEscalation =
+    user?.role === 'super_admin' ||
+    user?.role === 'head_of_quality' ||
+    user?.role === 'audit_manager' ||
+    user?.role === 'area_manager' ||
+    user?.role === 'regional_operational_manager';
+
+  const canForceEscalate =
+    user?.role === 'super_admin' ||
+    user?.role === 'head_of_quality' ||
+    user?.role === 'audit_manager' ||
+    user?.role === 'area_manager' ||
+    user?.role === 'regional_operational_manager';
+
+  const canExpire = user?.role === 'national_operational_manager';
 
   const handleRunEscalation = async () => {
     if (!canRunEscalation) return;
     setIsRunningEscalation(true);
     try {
-      const res = await runCAPAEscalationLadder();
+      const res = await runCAPAEscalationLadder(true);
       await queryClient.invalidateQueries({ queryKey: ['capas'] });
       toast({
         title: 'Escalation run complete',
@@ -440,8 +540,65 @@ export default function CAPAPage() {
     }
   };
 
+  const handleForceEscalate = async (capaId: string) => {
+    if (!canForceEscalate) return;
+    try {
+      await forceEscalateCAPA(capaId);
+      await queryClient.invalidateQueries({ queryKey: ['capas'] });
+      toast({ title: 'Force escalation complete' });
+    } catch (e: any) {
+      console.error('Force escalation failed', e);
+      toast({
+        title: 'Force escalation failed',
+        description: e?.message || (typeof e === 'string' ? e : JSON.stringify(e)),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleExpire = async (capaId: string) => {
+    if (!canExpire) return;
+    try {
+      await updateCAPA(capaId, {
+        status: 'expired',
+        expired_at: new Date().toISOString(),
+        expired_reason: 'Expired by NOM (manual)',
+      });
+      await queryClient.invalidateQueries({ queryKey: ['capas'] });
+      toast({ title: 'CAPA expired' });
+    } catch (e: any) {
+      console.error('Expire CAPA failed', e);
+      toast({
+        title: 'Expire failed',
+        description: e?.message || 'Failed to expire CAPA.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const listQueryString = searchParams.toString();
+  const detailQuerySuffix = listQueryString ? `?${listQueryString}` : '';
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">CAPA Management</h1>
+          <p className="text-muted-foreground">Track and manage corrective and preventive actions</p>
+        </div>
+        <div className="flex gap-2">
+          {canRunEscalation && (
+            <Button
+              variant="outline"
+              onClick={handleRunEscalation}
+              disabled={isRunningEscalation}
+            >
+              {isRunningEscalation ? 'Running...' : 'Run Escalation'}
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* Summary Cards (Managers Only) */}
       {(isManager || treatAsDeptUser) && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -524,7 +681,16 @@ export default function CAPAPage() {
           </Select>
         )}
 
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={statusFilter}
+          onValueChange={(value) => {
+            setStatusFilter(value);
+            const next = new URLSearchParams(searchParams);
+            if (value === 'all') next.delete('status');
+            else next.set('status', value);
+            setSearchParams(next, { replace: true });
+          }}
+        >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
@@ -547,16 +713,6 @@ export default function CAPAPage() {
               <SelectItem value="low">Low</SelectItem>
             </SelectContent>
           </Select>
-        )}
-
-        {canRunEscalation && (
-          <Button
-            variant="outline"
-            onClick={handleRunEscalation}
-            disabled={isRunningEscalation}
-          >
-            {isRunningEscalation ? 'Running...' : 'Run Escalation'}
-          </Button>
         )}
       </div>
 
@@ -627,7 +783,7 @@ export default function CAPAPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => navigate(`/capa/${task.capaId}`)}
+                          onClick={() => navigate(`/capa/${task.capaId}${detailQuerySuffix}`)}
                         >
                           View
                         </Button>
@@ -704,12 +860,26 @@ export default function CAPAPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className={item.isOverdue ? 'text-red-600' : ''}>
-                          {format(new Date(item.capa.due_date), 'MMM d, yyyy')}
-                          {item.isOverdue && (
-                            <div className="text-xs text-red-600">Overdue</div>
-                          )}
-                        </div>
+                        {(() => {
+                          const effectiveDueDate =
+                            (item.capa.escalation_level ?? 0) > 0 && item.capa.escalation_due_date
+                              ? item.capa.escalation_due_date
+                              : item.capa.due_date;
+                          const showOriginal =
+                            (item.capa.escalation_level ?? 0) > 0 &&
+                            !!item.capa.escalation_due_date &&
+                            item.capa.due_date &&
+                            item.capa.due_date !== item.capa.escalation_due_date;
+                          return (
+                            <div className={item.isOverdue ? 'text-red-600' : ''}>
+                              {format(new Date(effectiveDueDate), 'MMM d, yyyy')}
+                              {showOriginal ? (
+                                <div className="text-xs text-muted-foreground">Original: {format(new Date(item.capa.due_date), 'MMM d, yyyy')}</div>
+                              ) : null}
+                              {item.isOverdue && <div className="text-xs text-red-600">Overdue</div>}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Badge className={getStatusBadge(item.capa.status)}>
@@ -734,13 +904,35 @@ export default function CAPAPage() {
                             Verify
                           </Button>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate(`/capa/${item.capa.id}`)}
-                          >
-                            View
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => navigate(`/capa/${item.capa.id}${detailQuerySuffix}`)}
+                            >
+                              View
+                            </Button>
+                            {canForceEscalate && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleForceEscalate(item.capa.id)}
+                              >
+                                Force
+                              </Button>
+                            )}
+                            {canExpire &&
+                              item.capa.status === 'escalated' &&
+                              !['closed', 'approved', 'expired'].includes(item.capa.status) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleExpire(item.capa.id)}
+                              >
+                                Expire
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>

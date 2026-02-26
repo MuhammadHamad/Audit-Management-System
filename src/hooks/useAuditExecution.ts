@@ -155,7 +155,7 @@ export function useAuditExecution(auditId: string) {
               evidenceFiles: [],
               evidenceUrls: signedUrlsByItem.get(item.id) || [],
               evidencePaths,
-              manualFinding: '',
+              manualFinding: existingResult?.manual_finding ?? '',
               capaPriority: null,
               capaDueDate: null,
             });
@@ -437,13 +437,17 @@ export function useAuditExecution(auditId: string) {
         return value === 'pass' ? item.points : 0;
       
       case 'rating':
-        if (typeof value === 'number') {
-          return (value / 5) * item.points;
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          const scale = Math.max(1, item.points || 5);
+          return Math.min(scale, Math.max(0, value));
         }
         return 0;
       
       case 'numeric':
-        return item.points; // Full points for any numeric value
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          return Math.min(item.points, Math.max(0, value));
+        }
+        return 0;
       
       case 'photo':
         const totalEvidence = state.evidenceFiles.length + state.evidenceUrls.length;
@@ -696,6 +700,7 @@ export function useAuditExecution(auditId: string) {
               item_id: item.id,
               response: state.response,
               evidence_urls: state.evidencePaths,
+              manual_finding: state.manualFinding?.trim() ? state.manualFinding : null,
               points_earned: calculateItemPoints(item, state),
             });
           }
@@ -755,6 +760,7 @@ export function useAuditExecution(auditId: string) {
               item_id: item.id,
               response: state.response,
               evidence_urls: state.evidencePaths,
+              manual_finding: state.manualFinding?.trim() ? state.manualFinding : null,
               points_earned: calculateItemPoints(item, state),
             });
           }

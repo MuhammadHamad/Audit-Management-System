@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Eye, EyeOff, Flame, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { z } from 'zod';
+import { BURGERIZZR_LOGO_URL } from '@/config/branding';
 
 // Input validation schema
 const loginSchema = z.object({
@@ -74,7 +75,12 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-4 text-center">
           <div className="mx-auto flex items-center justify-center gap-2">
-            <Flame className="h-10 w-10 text-accent" />
+            <img
+              src={BURGERIZZR_LOGO_URL}
+              alt="Burgerizzr"
+              className="h-10 w-10 object-contain"
+              loading="eager"
+            />
             <span className="text-3xl font-bold text-primary">Burgerizzr</span>
           </div>
           <CardDescription className="text-base">

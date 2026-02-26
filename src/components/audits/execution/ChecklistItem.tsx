@@ -150,7 +150,7 @@ export function ChecklistItem({
               size="sm"
               variant={value === 'pass' ? 'default' : 'outline'}
               className={cn(
-                'min-w-[80px]',
+                'h-8 min-w-[72px] px-3',
                 value === 'pass' && 'bg-green-600 hover:bg-green-700 text-white'
               )}
               onClick={() => onResponseChange({ value: 'pass' })}
@@ -163,7 +163,7 @@ export function ChecklistItem({
               size="sm"
               variant={value === 'fail' ? 'default' : 'outline'}
               className={cn(
-                'min-w-[80px]',
+                'h-8 min-w-[72px] px-3',
                 value === 'fail' && 'bg-destructive hover:bg-destructive/90 text-white'
               )}
               onClick={() => onResponseChange({ value: 'fail' })}
@@ -177,9 +177,10 @@ export function ChecklistItem({
 
       case 'rating': {
         const value = (state.response?.value as number) || 0;
+        const scale = Math.max(1, item.points || 5);
         return (
           <div className="flex gap-1">
-            {[1, 2, 3, 4, 5].map(rating => (
+            {Array.from({ length: scale }, (_, i) => i + 1).map(rating => (
               <button
                 key={rating}
                 type="button"
@@ -189,7 +190,7 @@ export function ChecklistItem({
               >
                 <Star
                   className={cn(
-                    'h-6 w-6 transition-colors',
+                    'h-5 w-5 transition-colors',
                     rating <= value
                       ? 'fill-amber-400 text-amber-400'
                       : 'text-muted-foreground/40'
@@ -204,20 +205,32 @@ export function ChecklistItem({
       case 'numeric': {
         const value = (state.response?.value as number) ?? '';
         return (
-          <Input
-            type="number"
-            step="any"
-            className="w-[120px]"
-            placeholder="Value"
-            value={value}
-            onChange={e => {
-              const num = e.target.value === '' ? null : parseFloat(e.target.value);
-              if (num !== null && !isNaN(num)) {
-                onResponseChange({ value: num });
-              }
-            }}
-            disabled={isReadOnly}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              step="any"
+              className="w-[120px]"
+              placeholder="Value"
+              min={0}
+              max={item.points}
+              value={value}
+              onChange={e => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  onResponseChange({ value: null });
+                  return;
+                }
+
+                const num = parseFloat(raw);
+                if (!Number.isNaN(num)) {
+                  const clamped = Math.min(item.points, Math.max(0, num));
+                  onResponseChange({ value: clamped });
+                }
+              }}
+              disabled={isReadOnly}
+            />
+            <span className="text-sm text-muted-foreground">/ {item.points}</span>
+          </div>
         );
       }
 
@@ -323,40 +336,47 @@ export function ChecklistItem({
     const isMet = totalEvidence >= requiredCount;
 
     return (
-      <div className="mt-3">
+      <div className="mt-3 space-y-2">
         {isRequired ? (
-          <div
+          <label
             className={cn(
-              'border-2 border-dashed rounded-md p-4 text-center transition-colors',
-              isMet ? 'border-green-500 bg-green-50' : 'border-destructive bg-destructive/5'
+              'flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 transition-colors',
+              isMet ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-destructive/60 bg-destructive/5',
+              !isReadOnly && 'cursor-pointer hover:bg-muted/40',
+              isReadOnly && 'opacity-70 cursor-not-allowed'
             )}
           >
-            <label className="cursor-pointer">
-              <div className={cn(
-                'text-sm',
-                isMet ? 'text-green-700' : 'text-destructive'
-              )}>
-                📎 {isMet ? `${totalEvidence} photo(s) uploaded` : `Upload evidence (required: ${requiredCount})`}
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Evidence</div>
+              <div className={cn('text-xs', isMet ? 'text-emerald-600' : 'text-destructive')}>
+                {totalEvidence}/{requiredCount} uploaded
               </div>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={isReadOnly}
-              />
-            </label>
-          </div>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="h-8" disabled={isReadOnly}>
+              Upload
+            </Button>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={isReadOnly}
+            />
+          </label>
         ) : (
-          <button
-            type="button"
-            onClick={() => document.getElementById(`evidence-${item.id}`)?.click()}
-            className="text-xs text-primary hover:underline flex items-center gap-1"
-            disabled={isReadOnly}
-          >
-            <Plus className="h-3 w-3" />
-            Add Evidence
+          <div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => document.getElementById(`evidence-${item.id}`)?.click()}
+              disabled={isReadOnly}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add Evidence
+            </Button>
             <input
               id={`evidence-${item.id}`}
               type="file"
@@ -366,24 +386,24 @@ export function ChecklistItem({
               onChange={handleFileUpload}
               disabled={isReadOnly}
             />
-          </button>
+          </div>
         )}
 
         {/* Evidence thumbnails */}
         {totalEvidence > 0 && (
-          <div className="flex flex-wrap gap-2 mt-2">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {state.evidenceUrls.map((url, idx) => (
               <div key={`url-${idx}`} className="relative">
                 <img
                   src={url}
                   alt={`Evidence ${idx + 1}`}
-                  className="h-16 w-16 object-cover rounded border"
+                  className="h-14 w-14 object-cover rounded-md border"
                 />
                 {!isReadOnly && (
                   <button
                     type="button"
                     onClick={() => onRemoveEvidenceUrl(idx)}
-                    className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5"
+                    className="absolute -top-1 -right-1 bg-background border rounded-full p-0.5 shadow"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -395,13 +415,13 @@ export function ChecklistItem({
                 <img
                   src={URL.createObjectURL(file)}
                   alt={`New Evidence ${idx + 1}`}
-                  className="h-16 w-16 object-cover rounded border"
+                  className="h-14 w-14 object-cover rounded-md border"
                 />
                 {!isReadOnly && (
                   <button
                     type="button"
                     onClick={() => onRemoveEvidence(idx)}
-                    className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5"
+                    className="absolute -top-1 -right-1 bg-background border rounded-full p-0.5 shadow"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -415,8 +435,23 @@ export function ChecklistItem({
   };
 
   const renderManualFinding = () => {
-    // Only show for failed items or low ratings
-    if (!isFailed()) return null;
+    const hasManualNote = !!state.manualFinding?.trim();
+    const shouldShow = isFailed() || hasManualNote;
+    if (!shouldShow) return null;
+
+    if (isReadOnly && hasManualNote) {
+      return (
+        <div className="mt-3">
+          <div className="text-xs text-muted-foreground">Observation</div>
+          <Textarea
+            className="mt-2 text-sm"
+            value={state.manualFinding}
+            disabled
+            rows={2}
+          />
+        </div>
+      );
+    }
 
     return (
       <div className="mt-3">
@@ -429,7 +464,7 @@ export function ChecklistItem({
           {showManualFinding ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           Add manual finding note
         </button>
-        
+
         {showManualFinding && (
           <Textarea
             className="mt-2 text-sm"
@@ -478,19 +513,19 @@ export function ChecklistItem({
 
           {/* Photo thumbnails for photo type */}
           {item.type === 'photo' && totalEvidence > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-2">
               {state.evidenceUrls.map((url, idx) => (
                 <div key={`url-${idx}`} className="relative">
                   <img
                     src={url}
                     alt={`Evidence ${idx + 1}`}
-                    className="h-16 w-16 object-cover rounded border"
+                    className="h-14 w-14 object-cover rounded-md border"
                   />
                   {!isReadOnly && (
                     <button
                       type="button"
                       onClick={() => onRemoveEvidenceUrl(idx)}
-                      className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5"
+                      className="absolute -top-1 -right-1 bg-background border rounded-full p-0.5 shadow"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -502,13 +537,13 @@ export function ChecklistItem({
                   <img
                     src={URL.createObjectURL(file)}
                     alt={`New Evidence ${idx + 1}`}
-                    className="h-16 w-16 object-cover rounded border"
+                    className="h-14 w-14 object-cover rounded-md border"
                   />
                   {!isReadOnly && (
                     <button
                       type="button"
                       onClick={() => onRemoveEvidence(idx)}
-                      className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5"
+                      className="absolute -top-1 -right-1 bg-background border rounded-full p-0.5 shadow"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -525,7 +560,7 @@ export function ChecklistItem({
 
         {/* Right side input for compact types */}
         {!['text', 'checklist'].includes(item.type) && (
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 pt-0.5">
             {renderInput()}
           </div>
         )}

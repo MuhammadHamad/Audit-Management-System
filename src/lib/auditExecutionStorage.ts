@@ -8,6 +8,7 @@ export interface AuditResult {
   item_id: string;
   response: AuditItemResponse;
   evidence_urls: string[];
+  manual_finding?: string | null;
   points_earned: number;
   created_at: string;
   updated_at: string;

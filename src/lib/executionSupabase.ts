@@ -97,6 +97,21 @@ export async function insertFindings(
   if (error) throw error;
 }
 
+export async function forceEscalateCAPA(capaId: string): Promise<{
+  capa_id: string;
+  new_assigned_to: string;
+  new_escalation_level: number;
+  new_escalated_to_role: string;
+} | null> {
+  const { data, error } = await (supabase as any).rpc('force_escalate_capa', {
+    p_capa_id: capaId,
+  });
+
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row ?? null) as any;
+}
+
 export async function uploadCAPAEvidenceFile(
   capaId: string,
   file: File
@@ -212,6 +227,21 @@ export async function fetchCAPAsByEntityId(entityId: string): Promise<CAPA[]> {
   return (data ?? []).map(mapCAPA);
 }
 
+export async function archiveCAPAsAssignedTo(userId: string): Promise<{ updatedCount: number }> {
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('capa')
+    .update({ status: 'closed', updated_at: now })
+    .eq('assigned_to', userId)
+    .not('status', 'in', '(closed,approved,expired)')
+    .select('id');
+
+  if (error) throw error;
+
+  return { updatedCount: Array.isArray(data) ? data.length : 0 };
+}
+
 const mapCAPA = (row: any): CAPA => ({
   id: row.id,
   capa_code: row.capa_code,
@@ -325,8 +355,10 @@ export async function insertCAPAs(
   if (error) throw error;
 }
 
-export async function runCAPAEscalationLadder(): Promise<{ escalatedCount: number; expiredCount: number }> {
-  const { data, error } = await supabase.rpc('run_capa_escalation_ladder');
+export async function runCAPAEscalationLadder(force: boolean = false): Promise<{ escalatedCount: number; expiredCount: number }> {
+  const { data, error } = force
+    ? await (supabase as any).rpc('run_capa_escalation_ladder', { p_force: true })
+    : await (supabase as any).rpc('run_capa_escalation_ladder');
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : null;
   return {
@@ -360,6 +392,7 @@ export async function upsertAuditResults(
     item_id: r.item_id,
     response: r.response,
     evidence_urls: r.evidence_urls,
+    manual_finding: r.manual_finding ?? null,
     points_earned: r.points_earned,
     updated_at: now,
   }));
@@ -431,6 +464,7 @@ const mapAuditResult = (row: any): AuditResult => ({
   item_id: row.item_id,
   response: row.response,
   evidence_urls: Array.isArray(row.evidence_urls) ? row.evidence_urls : [],
+  manual_finding: row.manual_finding ?? null,
   points_earned: row.points_earned ?? 0,
   created_at: row.created_at,
   updated_at: row.updated_at,

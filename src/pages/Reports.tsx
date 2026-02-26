@@ -224,7 +224,7 @@ export default function ReportsPage() {
   };
   
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Reports</h1>
         <p className="text-muted-foreground">Generate and export data reports</p>
@@ -339,7 +339,7 @@ export default function ReportsPage() {
                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[400px] p-0" align="start">
+                <PopoverContent className="w-[calc(100vw-2rem)] max-w-[400px] p-0" align="start">
                   <div className="p-2 border-b">
                     <p className="text-sm text-muted-foreground">
                       Select entities to include in the report. Leave empty for all.
@@ -385,7 +385,7 @@ export default function ReportsPage() {
           )}
           
           {/* Include Evidence Toggle */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border p-4">
             <div className="space-y-0.5">
               <Label htmlFor="includeEvidence">Include Evidence</Label>
               <p className="text-sm text-muted-foreground">
@@ -405,7 +405,7 @@ export default function ReportsPage() {
             <RadioGroup 
               value={fileFormat} 
               onValueChange={(value) => setFileFormat(value as FileFormat)}
-              className="flex gap-4"
+              className="flex flex-col sm:flex-row gap-4"
             >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="csv" id="csv" />
@@ -502,8 +502,8 @@ export default function ReportsPage() {
       {/* Last Generated Report */}
       {lastReport && (
         <Card>
-          <CardContent className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               <Clock className="h-5 w-5 text-muted-foreground" />
               <div>
                 <p className="text-sm font-medium text-foreground">Latest report: {lastReport.filename}</p>
@@ -515,6 +515,7 @@ export default function ReportsPage() {
             <Button 
               variant="outline" 
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => {
                 if (lastReport.config) {
                   void (async () => {

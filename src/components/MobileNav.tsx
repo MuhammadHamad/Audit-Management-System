@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Flame, LogOut } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { navigationConfig } from '@/config/navigation';
 import { RoleBadge } from '@/components/RoleBadge';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { BURGERIZZR_LOGO_URL } from '@/config/branding';
 import {
   LayoutDashboard,
   Users,
@@ -63,7 +64,7 @@ export function MobileNav() {
         <Button 
           variant="ghost" 
           size="icon" 
-          className="md:hidden"
+          className="lg:hidden"
           aria-label="Open navigation menu"
         >
           <Menu className="h-6 w-6" />
@@ -73,7 +74,12 @@ export function MobileNav() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-4">
           <div className="flex items-center gap-2">
-            <Flame className="h-6 w-6 text-accent" />
+            <img
+              src={BURGERIZZR_LOGO_URL}
+              alt="Burgerizzr"
+              className="h-6 w-6 object-contain"
+              loading="eager"
+            />
             <span className="text-lg font-bold text-sidebar-foreground">Burgerizzr</span>
           </div>
         </div>

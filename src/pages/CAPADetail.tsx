@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Upload,
@@ -43,7 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
 import { fetchAuditById } from '@/lib/auditSupabase';
-import { fetchFindingById } from '@/lib/executionSupabase';
+import { fetchFindingById, forceEscalateCAPA } from '@/lib/executionSupabase';
 import {
   createSignedCAPAEvidenceUrls,
   createSignedAuditEvidenceUrls,
@@ -65,6 +65,7 @@ import { buildCAPAExportBundle, exportCAPAReportToExcel, openCAPAReportPrintView
 export default function CAPADetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
   
@@ -79,6 +80,7 @@ export default function CAPADetailPage() {
   const [notes, setNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
+  const [isSubmittingForVerification, setIsSubmittingForVerification] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   
   // Staff for sub-task assignment
@@ -107,6 +109,16 @@ export default function CAPADetailPage() {
   const canExportReport = ['head_of_quality', 'audit_manager', 'super_admin'].includes(user?.role || '');
 
   const isEscalationManagerRole = ['area_manager', 'regional_operational_manager', 'national_operational_manager'].includes(user?.role || '');
+
+  const canForceEscalate =
+    !!user &&
+    [
+      'super_admin',
+      'head_of_quality',
+      'audit_manager',
+      'area_manager',
+      'regional_operational_manager',
+    ].includes(user.role);
 
   const userNameById = useMemo(() => {
     const map = new Map(users.map(u => [u.id, u.full_name] as const));
@@ -169,7 +181,7 @@ export default function CAPADetailPage() {
     try {
       const capaData = id ? await fetchCAPAById(id) : null;
       if (!capaData) {
-        navigate('/capa');
+        navigate(`/capa${location.search || ''}`, { replace: true });
         return;
       }
 
@@ -272,6 +284,31 @@ export default function CAPADetailPage() {
   const handleNotesBlur = () => {
     if (capa && notes !== capa.notes) {
       void updateCAPA(capa.id, { notes });
+    }
+  };
+
+  const handleForceEscalate = async () => {
+    if (!capa) return;
+    if (!canForceEscalate) return;
+
+    setIsExporting(true);
+    try {
+      const res = await forceEscalateCAPA(capa.id);
+      await loadData();
+      toast({
+        title: 'Force escalation complete',
+        description: res?.new_escalated_to_role
+          ? `Escalated to ${res.new_escalated_to_role.replace(/_/g, ' ')}`
+          : 'Escalation applied.',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Force escalation failed',
+        description: e?.message || 'Failed to force escalate CAPA.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -393,6 +430,13 @@ export default function CAPADetailPage() {
       }
 
       toast({ title: 'Evidence uploaded' });
+    } catch (e: any) {
+      console.error('Evidence upload failed', e);
+      toast({
+        title: 'Upload failed',
+        description: e?.message || 'Failed to upload evidence.',
+        variant: 'destructive',
+      });
     } finally {
       setIsUploadingEvidence(false);
     }
@@ -412,41 +456,49 @@ export default function CAPADetailPage() {
     void updateCAPA(capa.id, { evidence_urls: nextPaths });
   };
 
-  const handleMarkPendingVerification = () => {
+  const handleMarkPendingVerification = async () => {
     if (!canMarkPendingVerification()) {
       toast({ title: 'Error', description: getVerificationDisabledReason(), variant: 'destructive' });
       return;
     }
+    if (isSubmittingForVerification) return;
 
-    void updateCAPA(capa!.id, { status: 'pending_verification' });
-    void supabase.from('capa_activity').insert({
-      capa_id: capa!.id,
-      user_id: user!.id,
-      action: 'pending_verification',
-      details: `${userNameById(user!.id) || 'Manager'}: Marked as pending verification`,
-      created_at: new Date().toISOString(),
-    });
+    setIsSubmittingForVerification(true);
+    try {
+      await updateCAPA(capa!.id, { status: 'pending_verification' });
+      await supabase.from('capa_activity').insert({
+        capa_id: capa!.id,
+        user_id: user!.id,
+        action: 'pending_verification',
+        details: `${userNameById(user!.id) || 'Manager'}: Marked as pending verification`,
+        created_at: new Date().toISOString(),
+      });
 
-    void (async () => {
-      try {
-        const hoqPrimary = await fetchUserIdsByRole('head_of_quality');
-        const hoqLegacy = hoqPrimary.length ? [] : await fetchUserIdsByRole('audit_manager');
-        const hoqUserIds = Array.from(new Set([...hoqPrimary, ...hoqLegacy]));
-        await insertNotifications(
-          hoqUserIds.map(uid => ({
-            user_id: uid,
-            type: 'capa_pending_verification',
-            message: `CAPA ${capa!.capa_code} is pending verification`,
-            link_to: `/capa/${capa!.id}`,
-          }))
-        );
-      } catch (e) {
-        console.error('Failed to notify Head of Quality for verification', e);
-      }
-    })();
+      const hoqPrimary = await fetchUserIdsByRole('head_of_quality');
+      const hoqLegacy = hoqPrimary.length ? [] : await fetchUserIdsByRole('audit_manager');
+      const superAdmins = await fetchUserIdsByRole('super_admin');
+      const notifyUserIds = Array.from(new Set([...hoqPrimary, ...hoqLegacy, ...superAdmins]));
+      await insertNotifications(
+        notifyUserIds.map(uid => ({
+          user_id: uid,
+          type: 'capa_pending_verification',
+          message: `CAPA ${capa!.capa_code} is pending verification`,
+          link_to: `/capa/${capa!.id}`,
+        }))
+      );
 
-    void loadData();
-    toast({ title: 'Submitted for verification' });
+      await loadData();
+      toast({ title: 'Submitted for verification' });
+    } catch (e: any) {
+      console.error('Submit for verification failed', e);
+      toast({
+        title: 'Submit failed',
+        description: e?.message || 'Failed to submit CAPA for verification.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmittingForVerification(false);
+    }
   };
 
   const handleExportExcel = async () => {
@@ -555,13 +607,24 @@ export default function CAPADetailPage() {
     if (!isManager) return false;
     if (isReadOnly) return false;
     if (isEscalationManagerRole && capa.assigned_to !== user.id) return false;
-    if (capa.status !== 'in_progress' && capa.status !== 'open') return false;
+    const allowedStatus =
+      capa.status === 'in_progress' ||
+      capa.status === 'open' ||
+      (isEscalationManagerRole && capa.status === 'escalated');
+    if (!allowedStatus) return false;
     const capaEvidence = capaEvidencePaths || [];
     return capaEvidence.length > 0;
   };
 
   const getVerificationDisabledReason = () => {
     if (!capa) return '';
+    const allowedStatus =
+      capa.status === 'in_progress' ||
+      capa.status === 'open' ||
+      (isEscalationManagerRole && capa.status === 'escalated');
+    if (!allowedStatus) {
+      return 'This CAPA cannot be submitted in its current status.';
+    }
     const capaEvidence = capaEvidencePaths || [];
     if (capaEvidence.length === 0) {
       return 'Upload at least one piece of evidence before submitting.';
@@ -613,7 +676,7 @@ export default function CAPADetailPage() {
         <div className="flex items-center justify-between">
           <div>
             <button
-              onClick={() => navigate('/capa')}
+              onClick={() => navigate(`/capa${location.search || ''}`)}
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -744,7 +807,7 @@ export default function CAPADetailPage() {
         <div className="flex items-center justify-between">
           <div>
             <button
-              onClick={() => navigate('/capa')}
+              onClick={() => navigate(`/capa${location.search || ''}`)}
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -772,22 +835,10 @@ export default function CAPADetailPage() {
               </>
             )}
 
-            {canManage && (
-              <>
-                {capa.status === 'rejected' ? (
-                  <Button onClick={handleResubmit} disabled={!canMarkPendingVerification()}>
-                    Resubmit for Verification
-                  </Button>
-                ) : (capa.status === 'in_progress' || capa.status === 'open') && (
-                  <Button
-                    onClick={handleMarkPendingVerification}
-                    disabled={isUploadingEvidence || !canMarkPendingVerification()}
-                    title={getVerificationDisabledReason()}
-                  >
-                    Mark Pending Verification
-                  </Button>
-                )}
-              </>
+            {canForceEscalate && (
+              <Button variant="outline" onClick={handleForceEscalate} disabled={isExporting}>
+                Force Escalate
+              </Button>
             )}
           </div>
         </div>
@@ -968,7 +1019,7 @@ export default function CAPADetailPage() {
                 </div>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   multiple
                   className="hidden"
                   onChange={(e) => e.target.files && handleEvidenceUpload(e.target.files)}
@@ -976,6 +1027,28 @@ export default function CAPADetailPage() {
               </label>
             )}
           </div>
+
+          {canEditCorrectiveAction && (
+            <div className="flex items-center gap-2 pt-2">
+              {capa.status === 'rejected' ? (
+                <Button
+                  type="button"
+                  onClick={handleResubmit}
+                  disabled={isSubmittingForVerification || isUploadingEvidence}
+                >
+                  Resubmit for Verification
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={handleMarkPendingVerification}
+                  disabled={isSubmittingForVerification || isUploadingEvidence || !canMarkPendingVerification()}
+                >
+                  Submit for Verification
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

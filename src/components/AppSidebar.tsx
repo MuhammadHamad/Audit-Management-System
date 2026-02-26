@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
 import { navigationConfig } from '@/config/navigation';
 import { RoleBadge } from '@/components/RoleBadge';
-import { cn } from '@/lib/utils';
+import { BURGERIZZR_LOGO_URL } from '@/config/branding';
 import {
   LayoutDashboard,
   Users,
@@ -20,7 +21,6 @@ import {
   TrendingUp,
   Settings,
   LogOut,
-  Flame,
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -57,9 +57,13 @@ export function AppSidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar">
       <div className="flex h-full flex-col">
-        {/* Logo Section */}
         <div className="flex items-center gap-2 border-b border-sidebar-border px-6 py-5">
-          <Flame className="h-6 w-6 text-accent" />
+          <img
+            src={BURGERIZZR_LOGO_URL}
+            alt="Burgerizzr"
+            className="h-6 w-6 object-contain"
+            loading="eager"
+          />
           <span className="text-xl font-bold text-sidebar-foreground">Burgerizzr</span>
         </div>
 

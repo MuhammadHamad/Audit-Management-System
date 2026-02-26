@@ -70,7 +70,14 @@ import { getUsers } from '@/lib/userStorage';
 import { EvidenceLightbox } from '@/components/verification/EvidenceLightbox';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fetchTemplateById } from '@/lib/templateSupabase';
-import { buildCAPAExportBundle, exportCAPAReportToExcel, openCAPAReportPrintView } from '@/lib/capaExport';
+import {
+  buildAuditComprehensiveExportBundle,
+  buildCAPAExportBundle,
+  exportAuditComprehensiveReportToExcel,
+  exportCAPAReportToExcel,
+  openAuditComprehensiveReportPrintView,
+  openCAPAReportPrintView,
+} from '@/lib/capaExport';
 
 interface ChecklistItemDisplay {
   id: string;
@@ -141,10 +148,12 @@ export default function VerificationDetail() {
   const [auditResults, setAuditResults] = useState<AuditResult[]>([]);
   const [evidenceByItemId, setEvidenceByItemId] = useState<Map<string, string[]>>(new Map());
   const [isExportingCapaId, setIsExportingCapaId] = useState<string | null>(null);
+  const [isExportingAudit, setIsExportingAudit] = useState(false);
 
   const canExportReport = ['head_of_quality', 'audit_manager', 'super_admin'].includes(user?.role || '');
 
   const getBundleQueryKey = (capaId: string) => ['capaExportBundle', capaId] as const;
+  const getAuditBundleQueryKey = (auditId: string) => ['auditComprehensiveExportBundle', auditId] as const;
 
   const getOrFetchExportBundle = async (capaId: string) => {
     const key = getBundleQueryKey(capaId);
@@ -153,6 +162,17 @@ export default function VerificationDetail() {
     return queryClient.fetchQuery({
       queryKey: key,
       queryFn: () => buildCAPAExportBundle(capaId),
+      staleTime: 2 * 60 * 1000,
+    });
+  };
+
+  const getOrFetchAuditBundle = async (auditId: string) => {
+    const key = getAuditBundleQueryKey(auditId);
+    const cached = queryClient.getQueryData<any>(key);
+    if (cached) return cached;
+    return queryClient.fetchQuery({
+      queryKey: key,
+      queryFn: () => buildAuditComprehensiveExportBundle(auditId),
       staleTime: 2 * 60 * 1000,
     });
   };
@@ -230,6 +250,42 @@ export default function VerificationDetail() {
       toast({ title: 'Error', description: e?.message || 'Failed to export Excel report', variant: 'destructive' });
     } finally {
       setIsExportingCapaId(null);
+    }
+  };
+
+  const handleExportAuditPdf = async () => {
+    if (!canExportReport) return;
+    if (!audit?.id) return;
+    if (isExportingAudit) return;
+
+    setIsExportingAudit(true);
+    try {
+      const bundle = await getOrFetchAuditBundle(audit.id);
+      openAuditComprehensiveReportPrintView(bundle);
+      toast({ title: 'Report opened', description: 'Use your browser Print → Save as PDF.' });
+    } catch (e: any) {
+      console.error('Audit comprehensive export (pdf) failed', e);
+      toast({ title: 'Error', description: e?.message || 'Failed to open report', variant: 'destructive' });
+    } finally {
+      setIsExportingAudit(false);
+    }
+  };
+
+  const handleExportAuditExcel = async () => {
+    if (!canExportReport) return;
+    if (!audit?.id) return;
+    if (isExportingAudit) return;
+
+    setIsExportingAudit(true);
+    try {
+      const bundle = await getOrFetchAuditBundle(audit.id);
+      exportAuditComprehensiveReportToExcel(bundle);
+      toast({ title: 'Exported', description: 'Excel report downloaded.' });
+    } catch (e: any) {
+      console.error('Audit comprehensive export (excel) failed', e);
+      toast({ title: 'Error', description: e?.message || 'Failed to export Excel', variant: 'destructive' });
+    } finally {
+      setIsExportingAudit(false);
     }
   };
 
@@ -622,6 +678,33 @@ export default function VerificationDetail() {
               <span className="text-sm text-muted-foreground animate-pulse">
                 Recalculating health score...
               </span>
+            )}
+
+            {canExportReport && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleExportAuditPdf();
+                  }}
+                  disabled={isExportingAudit}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export Full Audit PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleExportAuditExcel();
+                  }}
+                  disabled={isExportingAudit}
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export Full Audit Excel
+                </Button>
+              </>
             )}
             
             <Tooltip>

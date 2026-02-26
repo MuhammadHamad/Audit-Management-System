@@ -267,12 +267,28 @@ export const calculateActiveAuditFeed = (
   getEntityName: (entityType: string, entityId: string) => string
 ) => {
   const activeStatuses: Audit['status'][] = ['scheduled', 'in_progress', 'submitted', 'pending_verification', 'overdue'];
-  
-  let activeAudits = audits.filter(a => activeStatuses.includes(a.status));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const getDerivedStatus = (audit: Audit): Audit['status'] => {
+    const scheduled = new Date(audit.scheduled_date);
+    scheduled.setHours(0, 0, 0, 0);
+
+    const isPastDue = scheduled.getTime() < today.getTime();
+    if (isPastDue && (audit.status === 'scheduled' || audit.status === 'in_progress')) {
+      return 'overdue';
+    }
+    return audit.status;
+  };
+
+  let activeAudits = audits
+    .filter(a => activeStatuses.includes(a.status))
+    .map(a => ({ audit: a, derivedStatus: getDerivedStatus(a) }));
 
   if (filterNeedsAttention) {
-    activeAudits = activeAudits.filter(a => 
-      ['pending_verification', 'submitted', 'overdue'].includes(a.status)
+    activeAudits = activeAudits.filter(({ derivedStatus }) =>
+      ['pending_verification', 'submitted', 'overdue'].includes(derivedStatus)
     );
   }
 
@@ -285,11 +301,11 @@ export const calculateActiveAuditFeed = (
     'scheduled': 4,
   };
 
-  activeAudits.sort((a, b) => 
-    (statusPriority[a.status] || 99) - (statusPriority[b.status] || 99)
+  activeAudits.sort((a, b) =>
+    (statusPriority[a.derivedStatus] || 99) - (statusPriority[b.derivedStatus] || 99)
   );
 
-  return activeAudits.slice(0, 12).map(audit => {
+  return activeAudits.slice(0, 12).map(({ audit, derivedStatus }) => {
     const auditor = audit.auditor_id ? getUserById(audit.auditor_id) : null;
     const entityName = getEntityName(audit.entity_type, audit.entity_id);
 
@@ -299,8 +315,8 @@ export const calculateActiveAuditFeed = (
       entityName,
       auditorName: auditor?.full_name || 'Unassigned',
       scheduledDate: audit.scheduled_date,
-      status: audit.status,
-      needsAttention: ['pending_verification', 'submitted', 'overdue'].includes(audit.status),
+      status: derivedStatus,
+      needsAttention: ['pending_verification', 'submitted', 'overdue'].includes(derivedStatus),
     };
   });
 };

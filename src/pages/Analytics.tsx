@@ -121,7 +121,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Header with Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -129,12 +129,12 @@ export default function AnalyticsPage() {
           <p className="text-muted-foreground">Branch audit performance insights</p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
           <Select
             value={selectedYear.toString()}
             onValueChange={(val) => setSelectedYear(Number(val))}
           >
-            <SelectTrigger className="w-[120px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <Calendar className="h-4 w-4 mr-2" />
               <SelectValue />
             </SelectTrigger>
@@ -151,7 +151,7 @@ export default function AnalyticsPage() {
             value={selectedMonth !== undefined ? selectedMonth.toString() : 'all'}
             onValueChange={(val) => setSelectedMonth(val === 'all' ? undefined : Number(val))}
           >
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="All Months" />
             </SelectTrigger>
             <SelectContent>
@@ -268,7 +268,7 @@ export default function AnalyticsPage() {
           </ChartContainer>
           
           {/* Monthly summary table */}
-          <div className="mt-4 border rounded-lg overflow-hidden">
+          <div className="mt-4 border rounded-lg">
             <Table>
               <TableHeader>
                 <TableRow>
