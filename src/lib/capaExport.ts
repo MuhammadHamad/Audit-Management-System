@@ -1118,6 +1118,9 @@ export async function buildAuditComprehensiveExportBundle(auditId: string): Prom
 
 export function openAuditComprehensiveReportPrintView(bundle: AuditComprehensiveBundle): void {
   const { audit, template, auditResults, findings, capas, entityInfo, userNameById } = bundle;
+  if (!audit) {
+    throw new Error('Audit data is missing. Cannot generate report.');
+  }
   const templateSections = extractTemplateSections(template);
   const logoUrl = 'https://www.burgerizzr.com/favicon.png';
 
@@ -1317,7 +1320,7 @@ export function openAuditComprehensiveReportPrintView(bundle: AuditComprehensive
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>${escapeHtml(audit.audit_code || 'Audit Report')}</title>
+        <title>${escapeHtml(audit?.audit_code || 'Audit Report')}</title>
         <style>
           :root {
             --bg: #ffffff;
@@ -1446,7 +1449,7 @@ export function openAuditComprehensiveReportPrintView(bundle: AuditComprehensive
                 </div>
               </div>
             </div>
-            <div class="codepill">Audit: <b>${escapeHtml(audit.audit_code || '')}</b></div>
+            <div class="codepill">Audit: <b>${escapeHtml(audit?.audit_code || '')}</b></div>
           </div>
 
           <div class="card">
@@ -1454,19 +1457,19 @@ export function openAuditComprehensiveReportPrintView(bundle: AuditComprehensive
               <div class="k">Entity</div>
               <div>${escapeHtml(entityInfo ? `${entityInfo.code} - ${entityInfo.name} (${entityInfo.type})` : '')}</div>
               <div class="k">Audit Status</div>
-              <div>${escapeHtml(String(audit.status || ''))}</div>
+              <div>${escapeHtml(String(audit?.status || ''))}</div>
               <div class="k">Scheduled Date</div>
-              <div>${escapeHtml(String(audit.scheduled_date || ''))}</div>
+              <div>${escapeHtml(String(audit?.scheduled_date || ''))}</div>
               <div class="k">Completed At</div>
-              <div>${escapeHtml(String(audit.completed_at || ''))}</div>
+              <div>${escapeHtml(String(audit?.completed_at || ''))}</div>
               <div class="k">Auditor</div>
-              <div>${escapeHtml(userNameById(audit.auditor_id))}</div>
+              <div>${escapeHtml(userNameById(audit?.auditor_id))}</div>
               <div class="k">Score</div>
-              <div class="scoreValue">${escapeHtml(audit.score != null ? String(audit.score) : '—')}</div>
+              <div class="scoreValue">${escapeHtml(audit?.score != null ? String(audit.score) : '—')}</div>
               <div class="k">Pass/Fail</div>
               <div>
-                <span class="pfBadge ${String(audit.pass_fail || '').toLowerCase() === 'pass' ? 'pfBadge-pass' : String(audit.pass_fail || '').toLowerCase() === 'fail' ? 'pfBadge-fail' : ''}">
-                  ${escapeHtml(String(audit.pass_fail || '—'))}
+                <span class="pfBadge ${String(audit?.pass_fail || '').toLowerCase() === 'pass' ? 'pfBadge-pass' : String(audit?.pass_fail || '').toLowerCase() === 'fail' ? 'pfBadge-fail' : ''}">
+                  ${escapeHtml(String(audit?.pass_fail || '—'))}
                 </span>
               </div>
             </div>

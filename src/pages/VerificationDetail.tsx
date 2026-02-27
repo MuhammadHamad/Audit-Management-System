@@ -654,24 +654,21 @@ export default function VerificationDetail() {
   return (
   <div className="space-y-6 pb-24">
     {/* Sticky Header */}
-    <div className="sticky top-0 z-10 bg-background border-b py-4 -mx-6 px-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <button
-            onClick={() => navigate(backHref)}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Queue
-          </button>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">{audit.audit_code}</h1>
-            <span className="text-muted-foreground">{entityInfo.name}</span>
-            <Badge variant="outline" className="bg-gray-100">
-              {entityInfo.type}
-            </Badge>
+    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b py-4 -mx-6 px-6 shadow-sm">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <button
+              onClick={() => navigate(backHref)}
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold tracking-tight">{audit.audit_code}</h1>
+            </div>
           </div>
-        </div>
           
           <div className="flex items-center gap-2">
             {isRecalculating && (
@@ -689,9 +686,10 @@ export default function VerificationDetail() {
                     void handleExportAuditPdf();
                   }}
                   disabled={isExportingAudit}
+                  className="border-r pr-4 border-muted"
                 >
                   <FileText className="h-4 w-4 mr-2" />
-                  Export Full Audit PDF
+                  Export Audit PDF
                 </Button>
                 <Button
                   variant="outline"
@@ -700,9 +698,10 @@ export default function VerificationDetail() {
                     void handleExportAuditExcel();
                   }}
                   disabled={isExportingAudit}
+                  className="border-r pr-4 border-muted"
                 >
                   <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Export Full Audit Excel
+                  Export Audit Excel
                 </Button>
               </>
             )}
@@ -748,65 +747,90 @@ export default function VerificationDetail() {
           </div>
         </div>
       </div>
+    </div>
 
-      {/* Section A: Audit Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Audit Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div>
-              <p className="text-sm text-muted-foreground">Entity</p>
-              <p className="font-medium">{entityInfo.name}</p>
-              <p className="text-sm text-muted-foreground">{entityInfo.code} • {entityInfo.city}</p>
+    {/* Section A: Audit Summary */}
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b bg-muted/30 py-4">
+        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <FileText className="h-5 w-5" />
+          Audit Summary
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Entity</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <span className="text-xs font-bold text-primary">{entityInfo.code?.slice(0, 2) || 'EN'}</span>
+              </div>
+              <div>
+                <p className="font-medium">{entityInfo.name}</p>
+                <p className="text-sm text-muted-foreground">{entityInfo.code} • {entityInfo.city}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Auditor</p>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Auditor</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-primary" />
+              </div>
               <p className="font-medium">{auditorName}</p>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Schedule</p>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Schedule</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
               <p className="font-medium">
                 {format(new Date(audit.scheduled_date), 'MMM d')} → {audit.completed_at && format(new Date(audit.completed_at), 'MMM d, yyyy')}
               </p>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Final Score</p>
-              <div className="flex items-center gap-2">
-                <span className={`text-3xl font-bold ${getScoreColor(audit.score)}`}>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Final Score</Label>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex flex-col">
+                <span className={`text-4xl font-black tracking-tighter ${audit.score != null && audit.score >= 80 ? 'text-emerald-600' : audit.score != null && audit.score < 60 ? 'text-rose-600' : 'text-amber-600'}`}>
                   {audit.score?.toFixed(1) || '—'}
                 </span>
                 {audit.pass_fail && (
                   <Badge 
                     variant={audit.pass_fail === 'pass' ? 'default' : 'destructive'}
-                    className="text-lg px-3 py-1"
+                    className={`text-xs px-2 py-0.5 h-5 ${audit.pass_fail === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
                   >
                     {audit.pass_fail.toUpperCase()}
                   </Badge>
                 )}
               </div>
+              {criticalItemsFailed > 0 && (
+                <div className="flex items-center gap-1 text-xs text-rose-600">
+                  <AlertTriangle className="h-3 w-3" />
+                  <span>{criticalItemsFailed} critical</span>
+                </div>
+              )}
             </div>
           </div>
+        </div>
           
           <div className="mt-4 pt-4 border-t flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Template: {templateName}</p>
-              <p className="text-sm text-muted-foreground">
-                Items answered: {sections.flatMap(s => s.items).filter(i => i.response).length} / {sections.flatMap(s => s.items).length}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm">
-                Critical Items: <span className="text-green-600">{criticalItemsPassed} passed</span>
-                {criticalItemsFailed > 0 && (
-                  <>, <span className="text-red-600">{criticalItemsFailed} failed</span></>
-                )}
-              </p>
-            </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Template: {templateName}</p>
+            <p className="text-sm text-muted-foreground">
+              Items answered: {sections.flatMap(s => s.items).filter(i => i.response).length} / {sections.flatMap(s => s.items).length}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Critical items</p>
+            <p className="font-medium">
+              {criticalItemsFailed} failed / {criticalItemsPassed + criticalItemsFailed} total
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
 
       {/* Section B: Audit Checklist (Read-Only) */}
       <Card>
@@ -894,187 +918,241 @@ export default function VerificationDetail() {
       </Card>
 
       {/* Section C: Findings & CAPA Review */}
-      <Card id="findings-section">
-        <CardHeader>
-          <CardTitle>Findings &amp; CAPA Review</CardTitle>
+      <Card id="findings-section" className="overflow-hidden">
+        <CardHeader className="border-b bg-muted/30 py-4">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5" />
+            Findings &amp; CAPA Review
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="p-6">
           {findings.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No findings for this audit.</p>
+            <div className="text-center py-12">
+              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <Check className="h-8 w-8 text-green-600" />
+              </div>
+              <p className="text-muted-foreground font-medium">No findings for this audit</p>
+              <p className="text-sm text-muted-foreground mt-1">All items passed successfully</p>
+            </div>
           ) : (
-            findings.map((finding) => {
-              const capa = capas.find(c => c.finding_id === finding.id);
-              const activities = capa ? capaActivities[capa.id] || [] : [];
-              const decision = capa ? capaDecisions[capa.id] : undefined;
-              const today = new Date().toISOString().split('T')[0];
-              const isOverdue = !!capa && capa.due_date < today && capa.status !== 'closed';
-              const hasEvidence = !!capa && (capa.evidence_urls?.length || 0) > 0;
-              const isAutoApproved = activities.some(a => a.action === 'auto_approved');
+            <div className="space-y-4">
+              {findings.map((finding) => {
+                const capa = capas.find(c => c.finding_id === finding.id);
+                const activities = capa ? capaActivities[capa.id] || [] : [];
+                const decision = capa ? capaDecisions[capa.id] : undefined;
+                const today = new Date().toISOString().split('T')[0];
+                const isOverdue = !!capa && capa.due_date < today && capa.status !== 'closed';
+                const hasEvidence = !!capa && (capa.evidence_urls?.length || 0) > 0;
+                const isAutoApproved = activities.some(a => a.action === 'auto_approved');
 
-              return (
-                <div key={finding.id} className="border rounded-lg overflow-hidden">
-                  <div className="p-4 bg-muted/30">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Badge className={getSeverityBadge(finding.severity)}>
-                            {finding.severity.toUpperCase()}
-                          </Badge>
-                          <span className="font-mono text-sm">{finding.finding_code}</span>
-                        </div>
-                        <p className="font-medium">{finding.description}</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Section: {finding.section_name} • Category: {finding.category}
-                        </p>
-                      </div>
-
-                      {finding.evidence_urls && finding.evidence_urls.length > 0 && (
-                        <div className="flex gap-2">
-                          {finding.evidence_urls.slice(0, 2).map((url, idx) => (
-                            <img
-                              key={idx}
-                              src={url}
-                              alt={`Finding evidence ${idx + 1}`}
-                              className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
-                              onClick={() => openLightbox(finding.evidence_urls, idx)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {capa ? (
-                    <div className="p-4">
+                return (
+                  <div key={finding.id} className="border rounded-xl overflow-hidden bg-card shadow-sm">
+                    {/* Finding Header */}
+                    <div className="p-4 bg-gradient-to-r from-muted/50 to-muted/30 border-b">
                       <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold">{capa.capa_code}</h4>
-                            <Badge className={
-                              decision === 'approved' ? 'bg-green-100 text-green-800' :
-                              decision === 'rejected' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }>
-                              {decision === 'approved' ? 'Approved' :
-                              decision === 'rejected' ? 'Rejected' :
-                              capa.status.replace('_', ' ')}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            <Badge className={`${getSeverityBadge(finding.severity)} px-3 py-1 text-xs font-bold uppercase tracking-wider`}>
+                              {finding.severity.toUpperCase()}
                             </Badge>
+                            <span className="font-mono text-sm bg-muted px-2 py-1 rounded">{finding.finding_code}</span>
+                            <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
+                              {finding.section_name} • {finding.category}
+                            </span>
                           </div>
-
-                          <div className="flex items-center gap-4 text-sm">
-                            <div className="flex items-center gap-1">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <span>{getUserName(capa.assigned_to)}</span>
-                            </div>
-                            <div className={`flex items-center gap-1 ${isOverdue ? 'text-red-600' : ''}`}>
-                              <Clock className="h-4 w-4" />
-                              <span>Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}</span>
-                              {isOverdue && <AlertTriangle className="h-4 w-4" />}
-                            </div>
-                          </div>
+                          <p className="font-medium text-base leading-relaxed">{finding.description}</p>
                         </div>
 
-                        {canExportReport && (
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                void handleExportCAPAPdf(capa.id);
-                              }}
-                              disabled={isExportingCapaId === capa.id}
-                            >
-                              <FileText className="h-4 w-4 mr-2" />
-                              Export PDF
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                void handleExportCAPAExcel(capa.id);
-                              }}
-                              disabled={isExportingCapaId === capa.id}
-                            >
-                              <FileSpreadsheet className="h-4 w-4 mr-2" />
-                              Export Excel
-                            </Button>
+                        {finding.evidence_urls && finding.evidence_urls.length > 0 && (
+                          <div className="flex gap-2">
+                            {finding.evidence_urls.slice(0, 2).map((url, idx) => (
+                              <img
+                                key={idx}
+                                src={url}
+                                alt={`Finding evidence ${idx + 1}`}
+                                className="w-16 h-16 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border"
+                                onClick={() => openLightbox(finding.evidence_urls, idx)}
+                              />
+                            ))}
+                            {finding.evidence_urls.length > 2 && (
+                              <div 
+                                className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center text-sm cursor-pointer hover:bg-muted/80 transition-colors border"
+                                onClick={() => openLightbox(finding.evidence_urls, 2)}
+                              >
+                                +{finding.evidence_urls.length - 2}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
+                    </div>
 
-                      <div className="mt-4 space-y-4">
-                        <div>
-                          <p className="text-sm font-medium mb-1">Corrective Action Taken:</p>
-                          <p className="text-sm text-muted-foreground">
-                            {capa.notes || 'No corrective action notes provided.'}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-sm font-medium mb-1">CAPA Requirement:</p>
-                          <p className="text-sm text-muted-foreground">
-                            {capa.description || '—'}
-                          </p>
-                        </div>
-
-                        {capa.evidence_urls && capa.evidence_urls.length > 0 ? (
-                          <div>
-                            <p className="text-sm font-medium mb-2">CAPA Evidence:</p>
-                            <div className="flex gap-2 flex-wrap">
-                              {capa.evidence_urls.map((url, idx) => (
-                                <img
-                                  key={idx}
-                                  src={url}
-                                  alt={`CAPA evidence ${idx + 1}`}
-                                  className="w-20 h-20 object-cover rounded cursor-pointer hover:opacity-80"
-                                  onClick={() => openLightbox(capa.evidence_urls || [], idx)}
-                                />
-                              ))}
+                    {/* CAPA Section */}
+                    {capa ? (
+                      <div className="p-4 space-y-4">
+                        {/* CAPA Header */}
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-3">
+                              <h4 className="font-semibold text-lg">{capa.capa_code}</h4>
+                              <Badge className={
+                                decision === 'approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' :
+                                decision === 'rejected' ? 'bg-rose-100 text-rose-800 border-rose-200' :
+                                'bg-amber-100 text-amber-800 border-amber-200'
+                              }>
+                                {decision === 'approved' ? 'Approved' :
+                                decision === 'rejected' ? 'Rejected' :
+                                capa.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              </Badge>
+                              {isOverdue && (
+                                <Badge variant="destructive" className="text-xs">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  Overdue
+                                </Badge>
+                              )}
                             </div>
-                          </div>
-                        ) : capa.status === 'pending_verification' && (
-                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <p className="text-sm text-yellow-800 flex items-center gap-2">
-                              <AlertTriangle className="h-4 w-4" />
-                              No evidence uploaded. This CAPA cannot be approved without evidence.
-                            </p>
-                          </div>
-                        )}
 
-                        {activities.length > 0 && (
-                          <div>
-                            <p className="text-sm font-medium mb-2">Activity Log:</p>
-                            <div className="max-h-32 overflow-y-auto space-y-1">
-                              {activities.map(activity => (
-                                <div key={activity.id} className="text-xs flex items-start gap-2">
-                                  <span className="text-muted-foreground whitespace-nowrap">
-                                    {format(new Date(activity.created_at), 'MMM d, HH:mm')}
-                                  </span>
-                                  <span>
-                                    {getUserName(activity.user_id)}: {activity.details || activity.action}
-                                  </span>
+                            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <User className="h-4 w-4 text-primary" />
                                 </div>
-                              ))}
+                                <div>
+                                  <p className="font-medium text-foreground">{getUserName(capa.assigned_to)}</p>
+                                  <p className="text-xs">Assigned To</p>
+                                </div>
+                              </div>
+                              <div className={`flex items-center gap-2 ${isOverdue ? 'text-rose-600' : ''}`}>
+                                <Clock className="h-4 w-4" />
+                                <div>
+                                  <p className={`font-medium ${isOverdue ? 'text-rose-600' : 'text-foreground'}`}>
+                                    {format(new Date(capa.due_date), 'MMM d, yyyy')}
+                                  </p>
+                                  <p className="text-xs">Due Date</p>
+                                </div>
+                                {isOverdue && <AlertTriangle className="h-4 w-4 text-rose-600" />}
+                              </div>
                             </div>
                           </div>
-                        )}
 
+                          {canExportReport && (
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleExportCAPAPdf(capa.id);
+                                }}
+                                disabled={isExportingCapaId === capa.id}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                Export PDF
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleExportCAPAExcel(capa.id);
+                                }}
+                                disabled={isExportingCapaId === capa.id}
+                              >
+                                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                                Export Excel
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* CAPA Details Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-3">
+                            <div>
+                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Corrective Action Taken</Label>
+                              <p className="text-sm mt-1 leading-relaxed">
+                                {capa.notes || 'No corrective action notes provided.'}
+                              </p>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CAPA Requirement</Label>
+                              <p className="text-sm mt-1 leading-relaxed">
+                                {capa.description || '—'}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {capa.evidence_urls && capa.evidence_urls.length > 0 ? (
+                              <div>
+                                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Evidence Uploaded</Label>
+                                <div className="grid grid-cols-3 gap-2 mt-2">
+                                  {capa.evidence_urls.slice(0, 6).map((url, idx) => (
+                                    <img
+                                      key={idx}
+                                      src={url}
+                                      alt={`CAPA evidence ${idx + 1}`}
+                                      className="w-full h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border"
+                                      onClick={() => openLightbox(capa.evidence_urls || [], idx)}
+                                    />
+                                  ))}
+                                  {capa.evidence_urls.length > 6 && (
+                                    <div className="w-full h-20 bg-muted rounded-lg flex items-center justify-center text-sm cursor-pointer hover:bg-muted/80 transition-colors border">
+                                      +{capa.evidence_urls.length - 6}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : capa.status === 'pending_verification' && (
+                              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="text-sm text-amber-800 flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4" />
+                                  No evidence uploaded. This CAPA cannot be approved without evidence.
+                                </p>
+                              </div>
+                            )}
+
+                            {activities.length > 0 && (
+                              <div>
+                                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Activity Log</Label>
+                                <div className="max-h-32 overflow-y-auto space-y-1 mt-2">
+                                  {activities.slice(0, 5).map(activity => (
+                                    <div key={activity.id} className="text-xs flex items-start gap-2 p-2 bg-muted/30 rounded">
+                                      <span className="text-muted-foreground whitespace-nowrap font-mono">
+                                        {format(new Date(activity.created_at), 'MMM d, HH:mm')}
+                                      </span>
+                                      <span className="flex-1">
+                                        <span className="font-medium">{getUserName(activity.user_id)}</span>: {activity.details || activity.action}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {activities.length > 5 && (
+                                    <p className="text-xs text-muted-foreground text-center py-1">
+                                      ...and {activities.length - 5} more activities
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Approval/Rejection Actions */}
                         {!isAutoApproved && capa.status === 'pending_verification' && decision === 'pending' && (
                           <div className="pt-4 border-t">
                             {inlineRejectCapaId === capa.id ? (
-                              <div className="space-y-2">
-                                <Label>Reason for rejection (required)</Label>
+                              <div className="space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                                <Label className="text-sm font-semibold text-amber-800">Reason for rejection (required)</Label>
                                 <Textarea
                                   value={inlineRejectReason}
                                   onChange={(e) => setInlineRejectReason(e.target.value)}
                                   placeholder="Explain why this CAPA is being rejected..."
-                                  rows={2}
+                                  rows={3}
+                                  className="bg-white"
                                 />
                                 <div className="flex gap-2">
                                   <Button
@@ -1092,68 +1170,98 @@ export default function VerificationDetail() {
                                     variant="destructive"
                                     onClick={() => void handleInlineRejectCAPA(capa.id)}
                                   >
+                                    <X className="h-4 w-4 mr-1" />
                                     Submit Rejection
                                   </Button>
                                 </div>
                               </div>
                             ) : (
-                              <div className="flex gap-2">
+                              <div className="flex gap-3 p-4 bg-muted/30 rounded-lg">
                                 <Button
                                   size="sm"
-                                  className="bg-green-600 hover:bg-green-700"
+                                  className="bg-emerald-600 hover:bg-emerald-700"
                                   onClick={() => void handleApproveCAPA(capa.id)}
                                   disabled={!hasEvidence}
                                 >
-                                  <Check className="h-4 w-4 mr-1" />
-                                  Approve
+                                  <Check className="h-4 w-4 mr-2" />
+                                  Approve CAPA
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                                  className="border-rose-500 text-rose-600 hover:bg-rose-50"
                                   onClick={() => setInlineRejectCapaId(capa.id)}
                                 >
-                                  <X className="h-4 w-4 mr-1" />
-                                  Reject
+                                  <X className="h-4 w-4 mr-2" />
+                                  Reject CAPA
                                 </Button>
+                                {!hasEvidence && (
+                                  <p className="text-xs text-amber-600 flex items-center">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Evidence required for approval
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>
                         )}
 
+                        {/* Decision Status */}
                         {decision === 'approved' && !isAutoApproved && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-green-100 text-green-800">✓ Approved</Badge>
+                            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                              <Badge className="bg-emerald-100 text-emerald-800 mb-2">
+                                <Check className="h-3 w-3 mr-1" />
+                                Approved
+                              </Badge>
+                              <p className="text-sm text-emerald-700">
+                                This CAPA has been reviewed and approved by the Head of Quality.
+                              </p>
+                            </div>
                           </div>
                         )}
 
                         {decision === 'rejected' && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-red-100 text-red-800">✗ Rejected</Badge>
-                            <p className="text-sm text-muted-foreground mt-2">
-                              {activities.find(a => a.action === 'rejected')?.details}
-                            </p>
+                            <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg">
+                              <Badge className="bg-rose-100 text-rose-800 mb-2">
+                                <X className="h-3 w-3 mr-1" />
+                                Rejected
+                              </Badge>
+                              <p className="text-sm text-rose-700">
+                                {activities.find(a => a.action === 'rejected')?.details || 'This CAPA has been rejected.'}
+                              </p>
+                            </div>
                           </div>
                         )}
 
                         {isAutoApproved && (
                           <div className="pt-4 border-t">
-                            <Badge className="bg-green-100 text-green-800">✓ Auto-approved</Badge>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {capa.priority} severity with evidence uploaded
-                            </p>
+                            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                              <Badge className="bg-emerald-100 text-emerald-800 mb-2">
+                                <Check className="h-3 w-3 mr-1" />
+                                Auto-approved
+                              </Badge>
+                              <p className="text-sm text-emerald-700">
+                                {capa.priority} severity finding with evidence uploaded - automatically approved.
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 text-sm text-muted-foreground">
-                      No CAPA created for this finding.
-                    </div>
-                  )}
-                </div>
-              );
-            })
+                    ) : (
+                      <div className="p-4 text-center text-muted-foreground">
+                        <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                          <AlertTriangle className="h-6 w-6" />
+                        </div>
+                        <p className="text-sm font-medium">No CAPA created</p>
+                        <p className="text-xs mt-1">CAPA not generated for this finding</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>

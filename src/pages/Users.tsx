@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { Upload, UserPlus } from 'lucide-react';
+import { Upload, UserPlus, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -56,7 +57,7 @@ const roleFilterOptions: { value: string; label: string }[] = [
 const statusFilterOptions: { value: string; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
   { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
+  { value: 'inactive', label: 'Paused' },
 ];
 
 export default function UsersPage() {
@@ -178,6 +179,31 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">User Management</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage user accounts, roles, and access permissions
+        </p>
+      </div>
+
+      {/* Info Card for Super Admin */}
+      <Card className="bg-blue-50 border-blue-200">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-900">
+                User Access Control
+              </p>
+              <p className="text-sm text-blue-700">
+                As Super Admin, you can pause user access temporarily. Paused users cannot log in but their data is preserved. 
+                Use this to temporarily suspend auditors or other staff while maintaining their account information.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Top Bar */}
       <div className="flex items-center justify-end gap-2 sm:gap-3">
         <Button
@@ -291,7 +317,7 @@ export default function UsersPage() {
             ) : (
               // User rows
               paginatedUsers.map(user => (
-                <TableRow key={user.id}>
+                <TableRow key={user.id} className={user.status === 'inactive' ? 'bg-amber-50/50' : ''}>
                   <TableCell>
                     <UserAvatar
                       name={user.full_name}
@@ -320,9 +346,15 @@ export default function UsersPage() {
                   </TableCell>
                   <TableCell>
                     {user.status === 'active' ? (
-                      <span className="text-sm font-medium text-green-600">Active</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span className="text-sm font-medium text-green-600">Active</span>
+                      </div>
                     ) : (
-                      <span className="text-sm font-medium text-red-600">Inactive</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                        <span className="text-sm font-medium text-amber-600">Paused</span>
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">

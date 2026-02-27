@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, Pencil, UserX, UserCheck, KeyRound, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, UserX, UserCheck, KeyRound, Trash2, Pause, Play } from 'lucide-react';
 import { User } from '@/types';
 import { updateUser } from '@/lib/userStorage';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,7 +44,7 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
   const handleToggleStatus = async () => {
     const newStatus = isActive ? 'inactive' : 'active';
     await updateUser(user.id, { status: newStatus });
-    toast.success(`User ${user.full_name} ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
+    toast.success(`User ${user.full_name} ${newStatus === 'active' ? 'resumed' : 'paused'} successfully`);
     setShowDeactivateDialog(false);
     onRefresh();
   };
@@ -168,13 +168,13 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
           <DropdownMenuItem onClick={() => setShowDeactivateDialog(true)}>
             {isActive ? (
               <>
-                <UserX className="mr-2 h-4 w-4" />
-                Deactivate
+                <Pause className="mr-2 h-4 w-4" />
+                Pause User
               </>
             ) : (
               <>
-                <UserCheck className="mr-2 h-4 w-4" />
-                Activate
+                <Play className="mr-2 h-4 w-4" />
+                Resume User
               </>
             )}
           </DropdownMenuItem>
@@ -194,23 +194,23 @@ export function UserActionsMenu({ user, onEdit, onRefresh }: UserActionsMenuProp
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Deactivate/Activate Dialog */}
+      {/* Pause/Resume Dialog */}
       <AlertDialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isActive ? 'Deactivate' : 'Activate'} {user.full_name}?
+              {isActive ? 'Pause' : 'Resume'} {user.full_name}?
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isActive
-                ? 'This user will no longer be able to log in. You can reactivate them later.'
-                : 'This user will be able to log in again.'}
+                ? 'This user will no longer be able to log in to the system. You can resume their access at any time.'
+                : 'This user will be able to log in and access the system again.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleToggleStatus}>
-              {isActive ? 'Deactivate' : 'Activate'}
+              {isActive ? 'Pause User' : 'Resume User'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

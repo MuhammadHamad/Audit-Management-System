@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Star, Camera, X, ChevronDown, ChevronUp, AlertTriangle, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,7 @@ export function ChecklistItem({
   checklistSubItems = ['Sub-item 1', 'Sub-item 2', 'Sub-item 3'],
 }: ChecklistItemProps) {
   const [showManualFinding, setShowManualFinding] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hasResponse = state.response !== null;
   const totalEvidence = state.evidenceFiles.length + state.evidenceUrls.length;
 
@@ -338,11 +339,11 @@ export function ChecklistItem({
     return (
       <div className="mt-3 space-y-2">
         {isRequired ? (
-          <label
+          <div
             className={cn(
               'flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 transition-colors',
               isMet ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-destructive/60 bg-destructive/5',
-              !isReadOnly && 'cursor-pointer hover:bg-muted/40',
+              !isReadOnly && 'hover:bg-muted/40',
               isReadOnly && 'opacity-70 cursor-not-allowed'
             )}
           >
@@ -352,10 +353,18 @@ export function ChecklistItem({
                 {totalEvidence}/{requiredCount} uploaded
               </div>
             </div>
-            <Button type="button" variant="outline" size="sm" className="h-8" disabled={isReadOnly}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              className="h-8" 
+              disabled={isReadOnly}
+              onClick={() => fileInputRef.current?.click()}
+            >
               Upload
             </Button>
             <input
+              ref={fileInputRef}
               type="file"
               accept="image/*"
               multiple
@@ -363,7 +372,7 @@ export function ChecklistItem({
               onChange={handleFileUpload}
               disabled={isReadOnly}
             />
-          </label>
+          </div>
         ) : (
           <div>
             <Button
@@ -371,14 +380,14 @@ export function ChecklistItem({
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-xs"
-              onClick={() => document.getElementById(`evidence-${item.id}`)?.click()}
+              onClick={() => fileInputRef.current?.click()}
               disabled={isReadOnly}
             >
               <Plus className="h-3 w-3 mr-1" />
               Add Evidence
             </Button>
             <input
-              id={`evidence-${item.id}`}
+              ref={fileInputRef}
               type="file"
               accept="image/*"
               multiple

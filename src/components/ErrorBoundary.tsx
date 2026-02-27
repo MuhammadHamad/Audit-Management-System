@@ -37,6 +37,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      const errorMessage = this.state.error?.message || String(this.state.error || '');
+      const errorStack = this.state.error?.stack || '';
       return (
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
           <Card className="max-w-md w-full">
@@ -50,6 +52,21 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="text-muted-foreground mb-6">
                 We encountered an unexpected error. Please refresh the page or return to the dashboard.
               </p>
+              {(errorMessage || errorStack) && (
+                <div className="text-left mb-6 rounded-md border bg-muted/40 p-3">
+                  <div className="text-xs font-semibold text-foreground mb-2">Error Details</div>
+                  {errorMessage && (
+                    <pre className="text-[11px] leading-snug whitespace-pre-wrap break-words text-foreground/90">
+                      {errorMessage}
+                    </pre>
+                  )}
+                  {errorStack && (
+                    <pre className="mt-2 max-h-48 overflow-auto text-[10px] leading-snug whitespace-pre-wrap break-words text-muted-foreground">
+                      {errorStack}
+                    </pre>
+                  )}
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Button onClick={this.handleRefresh} variant="outline" className="gap-2">
                   <RefreshCw className="h-4 w-4" />

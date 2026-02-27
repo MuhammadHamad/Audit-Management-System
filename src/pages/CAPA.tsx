@@ -52,10 +52,7 @@ interface CAPAListItem {
   entityCode: string;
   entityType: string;
   isOverdue: boolean;
-  subTaskProgress: {
-    completed: number;
-    total: number;
-  };
+  recentRank?: 1 | 2 | 3;
 }
 
 interface StaffTaskItem {
@@ -90,6 +87,7 @@ export default function CAPAPage() {
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isRunningEscalation, setIsRunningEscalation] = useState(false);
+  const [recentTick, setRecentTick] = useState(() => Date.now());
 
   const isStaff = user?.role === 'staff';
   const isManager = ['branch_manager', 'bck_manager', 'head_of_quality', 'audit_manager', 'area_manager', 'regional_operational_manager', 'national_operational_manager'].includes(user?.role || '');
@@ -100,6 +98,11 @@ export default function CAPAPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [entityTypeFilter]);
+
+  useEffect(() => {
+    const t = setInterval(() => setRecentTick(Date.now()), 30 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const maintenanceAccessQuery = useQuery({
     queryKey: ['dept_member', 'maintenance', user?.id],
@@ -252,24 +255,38 @@ export default function CAPAPage() {
       };
     }
 
-    let filteredCapas: CAPA[] = capas;
+    const getUpdatedAtMs = (c: CAPA): number => {
+      const raw = (c.updated_at || c.created_at) as string;
+      const ms = new Date(raw).getTime();
+      return Number.isFinite(ms) ? ms : 0;
+    };
+
+    const sortedCapas = [...capas].sort((a, b) => getUpdatedAtMs(b) - getUpdatedAtMs(a));
+
+    let filteredCapas: CAPA[] = sortedCapas;
     if (user?.role === 'branch_manager') {
-      filteredCapas = capas.filter(c => c.entity_type === 'branch');
+      filteredCapas = sortedCapas.filter(c => c.entity_type === 'branch');
     } else if (user?.role === 'bck_manager') {
-      filteredCapas = capas.filter(c => c.entity_type === 'bck');
+      filteredCapas = sortedCapas.filter(c => c.entity_type === 'bck');
     } else if (user?.role === 'head_of_quality' || user?.role === 'audit_manager') {
-      filteredCapas = capas;
+      filteredCapas = sortedCapas;
     } else if (user?.role === 'area_manager' || user?.role === 'regional_operational_manager' || user?.role === 'national_operational_manager') {
-      filteredCapas = capas.filter(c => c.assigned_to === user.id);
+      filteredCapas = sortedCapas.filter(c => c.assigned_to === user.id);
     } else if (user?.role === 'regional_manager') {
-      filteredCapas = capas.filter(c => c.entity_type === 'branch' || c.entity_type === 'bck');
+      filteredCapas = sortedCapas.filter(c => c.entity_type === 'branch' || c.entity_type === 'bck');
     } else if (treatAsDeptUser && maintenanceDeptId) {
-      filteredCapas = capas.filter(c => c.department_id === maintenanceDeptId);
+      filteredCapas = sortedCapas.filter(c => c.department_id === maintenanceDeptId);
     }
 
-    const capaItems: CAPAListItem[] = filteredCapas.map(capa => {
-      const subTasks = capa.sub_tasks || [];
+    const recentWindowMs = 10 * 60 * 1000;
+    const nowMs = recentTick;
+    const recentEligible = filteredCapas
+      .filter(c => ['closed', 'expired', 'escalated'].includes(c.status))
+      .filter(c => nowMs - getUpdatedAtMs(c) <= recentWindowMs)
+      .slice(0, 3);
+    const recentRankById = new Map(recentEligible.map((c, idx) => [c.id, (idx + 1) as 1 | 2 | 3] as const));
 
+    const capaItems: CAPAListItem[] = filteredCapas.map(capa => {
       const finding = findingMap.get(capa.finding_id);
 
       let entityName = '';
@@ -307,10 +324,7 @@ export default function CAPAPage() {
         entityCode,
         entityType: capa.entity_type,
         isOverdue: isDateOverdue(effectiveDueDate) && !['closed', 'approved', 'expired'].includes(capa.status),
-        subTaskProgress: {
-          completed: subTasks.filter(st => st.status === 'completed').length,
-          total: subTasks.length,
-        },
+        recentRank: recentRankById.get(capa.id),
       };
     });
 
@@ -331,7 +345,7 @@ export default function CAPAPage() {
       staffTasks: [] as StaffTaskItem[],
       stats,
     };
-  }, [bcks, branches, capas, findings, maintenanceDeptId, suppliers, treatAsDeptUser, user?.id, user?.role]);
+  }, [bcks, branches, capas, findings, maintenanceDeptId, recentTick, suppliers, treatAsDeptUser, user?.id, user?.role]);
 
   // Filter items for managers
   const filteredCAPAItems = capaItems.filter(item => {
@@ -401,10 +415,10 @@ export default function CAPAPage() {
 
   const getPriorityBadge = (priority: string) => {
     const colors: Record<string, string> = {
-      critical: 'bg-red-100 text-red-800 border-red-200',
-      high: 'bg-orange-100 text-orange-800 border-orange-200',
-      medium: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      low: 'bg-blue-100 text-blue-800 border-blue-200',
+      critical: 'bg-red-600 text-white font-bold',
+      high: 'bg-orange-600 text-white font-bold',
+      medium: 'bg-yellow-600 text-white font-bold',
+      low: 'bg-blue-600 text-white font-bold',
     };
     return colors[priority] || 'bg-gray-100 text-gray-800';
   };
@@ -416,13 +430,27 @@ export default function CAPAPage() {
       pending_verification: 'bg-yellow-100 text-yellow-800',
       approved: 'bg-green-100 text-green-800',
       rejected: 'bg-orange-100 text-orange-800',
-      escalated: 'bg-red-100 text-red-800',
-      closed: 'bg-green-100 text-green-800',
-      expired: 'bg-gray-200 text-gray-900',
+      escalated: 'bg-red-600 text-white font-bold',
+      closed: 'bg-green-600 text-white font-bold',
+      expired: 'bg-gray-700 text-white font-bold',
       pending: 'bg-gray-100 text-gray-800',
       completed: 'bg-green-100 text-green-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getRecentBadge = (rank?: 1 | 2 | 3) => {
+    if (!rank) return null;
+    const cls: Record<1 | 2 | 3, string> = {
+      1: 'bg-emerald-100 text-emerald-900 border border-emerald-200',
+      2: 'bg-sky-100 text-sky-900 border border-sky-200',
+      3: 'bg-violet-100 text-violet-900 border border-violet-200',
+    };
+    return (
+      <Badge className={cls[rank]}>
+        Recent {rank}
+      </Badge>
+    );
   };
 
   const getEntityTypeBadge = (type: string) => {
@@ -804,7 +832,6 @@ export default function CAPAPage() {
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Sub-tasks</TableHead>
                   <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -812,7 +839,7 @@ export default function CAPAPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 7 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-4 w-full" />
                         </TableCell>
@@ -821,7 +848,7 @@ export default function CAPAPage() {
                   ))
                 ) : paginatedCAPAItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12">
+                    <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center gap-2">
                         <CheckCircle2 className="h-12 w-12 text-green-500" />
                         <p className="text-muted-foreground">No open CAPA. Your entities are in good standing.</p>
@@ -882,18 +909,12 @@ export default function CAPAPage() {
                         })()}
                       </TableCell>
                       <TableCell>
-                        <Badge className={getStatusBadge(item.capa.status)}>
-                          {item.capa.status.replace('_', ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {item.subTaskProgress.total > 0 ? (
-                          <span className="text-sm">
-                            {item.subTaskProgress.completed} of {item.subTaskProgress.total} complete
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">—</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <Badge className={getStatusBadge(item.capa.status)}>
+                            {item.capa.status.replace('_', ' ')}
+                          </Badge>
+                          {getRecentBadge(item.recentRank)}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {canVerify && item.capa.status === 'pending_verification' ? (
