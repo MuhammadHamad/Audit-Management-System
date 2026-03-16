@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,8 @@ import {
   ChevronRight,
   FileText,
   ClipboardList,
-  MapPin
+  MapPin,
+  BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { User, Branch } from '@/types';
@@ -38,20 +39,44 @@ interface BranchManagerDashboardProps {
 export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
   const navigate = useNavigate();
 
+  const [cacheRefreshTick, setCacheRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    // Refresh cached entities/assignments so admin changes (like manager assignment) reflect immediately.
+    Promise.all([
+      import('@/lib/userStorage').then((m) => m.fetchBranches?.()),
+      import('@/lib/userStorage').then((m) => m.fetchUserAssignments?.()),
+    ])
+      .then(() => {
+        if (!isMounted) return;
+        setCacheRefreshTick((t) => t + 1);
+      })
+      .catch(() => {
+        // Ignore refresh errors; dashboard will fall back to existing cache.
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user.id]);
+
   // Get user's assigned branch
   const branchData = useMemo(() => {
-    // Check assignments
+    // Option A: branch managers are stored on branches.manager_id
+    const branches = getBranches();
+    const managedBranch = branches.find(b => b.manager_id === user.id);
+    if (managedBranch) return managedBranch;
+
+    // Backwards-compatible fallback: check user_assignments
     const assignments = getAssignmentsForUser(user.id);
     const branchAssignment = assignments.find(a => a.assigned_type === 'branch');
     if (branchAssignment) {
       return getBranchById(branchAssignment.assigned_id);
     }
-    
-    // Also check if user is the manager of any branch
-    const branches = getBranches();
-    const managedBranch = branches.find(b => b.manager_id === user.id);
-    return managedBranch;
-  }, [user.id]);
+
+    return undefined;
+  }, [user.id, cacheRefreshTick]);
 
   // Get health score components
   const healthScoreData = useMemo(() => {
@@ -182,33 +207,38 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
   return (
     <div className="space-y-6">
       {/* Section 1: Branch Header Card */}
-      <Card className="bg-muted/30">
-        <CardContent className="py-6">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-            <div className="flex-1">
-              <h1 className="text-2xl font-semibold">{branchData.name}</h1>
-              <p className="text-sm text-muted-foreground">{branchData.code}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="bg-muted/30 lg:col-span-2">
+          <CardContent className="py-5">
+            <div className="flex flex-col gap-2">
+              <div>
+                <h1 className="text-2xl font-semibold">{branchData.name}</h1>
+                <p className="text-sm text-muted-foreground">{branchData.code}</p>
+              </div>
               {(branchData.city || branchData.address) && (
-                <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <MapPin className="h-4 w-4" />
                   <span>{[branchData.address, branchData.city].filter(Boolean).join(', ')}</span>
                 </div>
               )}
             </div>
-            <div className="flex flex-col items-center">
-              <HealthScoreIndicator
-                score={branchData.health_score}
-                entityType="branch"
-                size="lg"
-                showLabel
-                showComponents
-                components={healthScoreData}
-                hasAudits={branchData.health_score > 0}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-muted/30">
+          <CardContent className="py-5 flex items-center justify-center">
+            <HealthScoreIndicator
+              score={branchData.health_score}
+              entityType="branch"
+              size="lg"
+              showLabel
+              showComponents
+              components={healthScoreData}
+              hasAudits={branchData.health_score > 0}
+            />
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Section 2: KPI Cards */}
       {kpiData && (
@@ -249,30 +279,30 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
         </div>
       )}
 
-      {/* Section 3: Audit History Chart + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Section 3: Audit History + Quick Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Audit History Chart */}
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Audit History</CardTitle>
           </CardHeader>
           <CardContent>
             {auditHistory.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
+              <p className="text-muted-foreground text-center py-6">
                 No audit history yet. Your first audit will appear here.
               </p>
             ) : (
               <div className="space-y-4">
                 {/* Simple bar chart */}
                 <div className="flex items-end justify-between gap-2 h-40">
-                  {auditHistory.map((audit, index) => {
+                  {auditHistory.map((audit) => {
                     const height = Math.max((audit.score / 100) * 140, 20);
                     const isPass = audit.score >= 70;
-                    
+
                     return (
                       <div key={audit.id} className="flex-1 flex flex-col items-center gap-2">
                         <span className="text-xs font-medium">{audit.score}</span>
-                        <div 
+                        <div
                           className={cn(
                             "w-full rounded-t-md transition-all",
                             isPass ? "bg-success" : "bg-destructive"
@@ -301,7 +331,7 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
             <CardTitle className="text-lg">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div 
+            <div
               className="flex items-center justify-between p-4 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
               onClick={() => navigate('/capa')}
             >
@@ -311,13 +341,23 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
-            <div 
+            <div
               className="flex items-center justify-between p-4 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
               onClick={() => navigate('/audits')}
             >
               <div className="flex items-center gap-3">
                 <FileText className="h-5 w-5 text-muted-foreground" />
-                <span className="font-medium">View Audit Results</span>
+                <span className="font-medium">View Audits</span>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div
+              className="flex items-center justify-between p-4 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => navigate('/reports')}
+            >
+              <div className="flex items-center gap-3">
+                <BarChart3 className="h-5 w-5 text-muted-foreground" />
+                <span className="font-medium">View Reports</span>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
@@ -336,48 +376,50 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
             {recentAudits.length === 0 ? (
               <p className="text-muted-foreground text-center py-8">No audits yet.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Audit</TableHead>
-                    <TableHead>Auditor</TableHead>
-                    <TableHead>Score</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentAudits.map(audit => (
-                    <TableRow 
-                      key={audit.id} 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => navigate(`/audits/${audit.id}`)}
-                    >
-                      <TableCell className="font-medium">{audit.audit_code}</TableCell>
-                      <TableCell>{audit.auditorName}</TableCell>
-                      <TableCell>
-                        {audit.status === 'approved' && audit.score != null ? (
-                          <HealthScoreIndicator score={audit.score} entityType="branch" size="sm" />
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          audit.status === 'approved' ? 'default' :
-                          audit.status === 'pending_verification' ? 'secondary' :
-                          audit.status === 'overdue' ? 'destructive' : 'outline'
-                        }>
-                          {audit.status.replace('_', ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {audit.relativeDate}
-                      </TableCell>
+              <div className="max-h-[340px] overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-background">
+                    <TableRow>
+                      <TableHead>Audit</TableHead>
+                      <TableHead>Auditor</TableHead>
+                      <TableHead>Score</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {recentAudits.map(audit => (
+                      <TableRow 
+                        key={audit.id} 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => navigate(`/audits/${audit.id}`)}
+                      >
+                        <TableCell className="font-medium">{audit.audit_code}</TableCell>
+                        <TableCell>{audit.auditorName}</TableCell>
+                        <TableCell>
+                          {audit.status === 'approved' && audit.score != null ? (
+                            <HealthScoreIndicator score={audit.score} entityType="branch" size="sm" />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            audit.status === 'approved' ? 'default' :
+                            audit.status === 'pending_verification' ? 'secondary' :
+                            audit.status === 'overdue' ? 'destructive' : 'outline'
+                          }>
+                            {audit.status.replace('_', ' ')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {audit.relativeDate}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -393,46 +435,56 @@ export function BranchManagerDashboard({ user }: BranchManagerDashboardProps) {
                 <p className="text-success font-medium">No open CAPA. Great work!</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {openCAPAList.map(capa => (
-                  <div
-                    key={capa.id}
-                    className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50"
-                    onClick={() => navigate(`/capa/${capa.id}`)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium">{capa.capa_code}</span>
-                        <Badge variant={
-                          capa.priority === 'critical' ? 'destructive' :
-                          capa.priority === 'high' ? 'default' :
-                          capa.priority === 'medium' ? 'secondary' : 'outline'
-                        }>
-                          {capa.priority}
-                        </Badge>
+              <div className="max-h-[340px] overflow-y-auto pr-1">
+                <div className="space-y-3">
+                  {openCAPAList.map(capa => (
+                    <div
+                      key={capa.id}
+                      className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50"
+                      onClick={() => navigate(`/capa/${capa.id}`)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">{capa.capa_code}</span>
+                          <Badge
+                            variant={
+                              capa.priority === 'critical' ? 'destructive' :
+                              capa.priority === 'high' ? 'default' :
+                              capa.priority === 'medium' ? 'secondary' : 'outline'
+                            }
+                          >
+                            {capa.priority}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {capa.description?.slice(0, 50) || 'No description'}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span
+                            className={cn(
+                              "text-xs font-medium",
+                              capa.isOverdue ? "text-destructive" : "text-muted-foreground"
+                            )}
+                          >
+                            Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}
+                            {capa.isOverdue && " (Overdue)"}
+                          </span>
+                          <Badge
+                            variant={
+                              capa.status === 'open' ? 'outline' :
+                              capa.status === 'in_progress' ? 'secondary' :
+                              capa.status === 'escalated' ? 'destructive' : 'default'
+                            }
+                            className="text-xs"
+                          >
+                            {capa.status.replace('_', ' ')}
+                          </Badge>
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {capa.description?.slice(0, 50) || 'No description'}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={cn(
-                          "text-xs",
-                          capa.isOverdue ? "text-destructive font-medium" : "text-muted-foreground"
-                        )}>
-                          Due: {format(new Date(capa.due_date), 'MMM d, yyyy')}
-                        </span>
-                        <Badge variant={
-                          capa.status === 'open' ? 'outline' :
-                          capa.status === 'in_progress' ? 'secondary' :
-                          capa.status === 'escalated' ? 'destructive' : 'default'
-                        } className="text-xs">
-                          {capa.status.replace('_', ' ')}
-                        </Badge>
-                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-2" />
                     </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-2" />
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

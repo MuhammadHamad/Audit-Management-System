@@ -40,6 +40,7 @@ import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserRole, Region, Branch, BCK } from '@/types';
 import { getRegions, getBranches, getBCKs, createAssignment } from '@/lib/userStorage';
+import { updateBranch } from '@/lib/entityStorage';
 import { fetchDepartmentBySlug, addDepartmentMember } from '@/lib/departmentSupabase';
 import { supabase } from '@/integrations/supabase/client';
 import { getAdminClient } from '@/integrations/supabase/adminClient';
@@ -216,7 +217,7 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
         return;
       }
 
-      // Step 3: Create assignments if needed
+      // Step 3: Create assignments / manager mapping
       if (data.assigned_id && authData.user && needsAssignment) {
         const options = getAssignmentOptions();
         const selected = options.find(o => o.id === data.assigned_id);
@@ -225,11 +226,24 @@ export function AddUserModal({ open, onOpenChange, onSuccess }: AddUserModalProp
           return;
         }
 
-        await createAssignment({
-          user_id: authData.user.id,
-          assigned_type: selected.type,
-          assigned_id: selected.id,
-        });
+        // Option A (source of truth): branch managers are stored on branches.manager_id
+        if (data.role === 'branch_manager' && selected.type === 'branch') {
+          const branches = getBranches();
+          const currentlyManaged = branches.filter(b => b.manager_id === authData.user!.id);
+          await Promise.all(
+            currentlyManaged
+              .filter(b => b.id !== selected.id)
+              .map(b => updateBranch(b.id, { manager_id: undefined }))
+          );
+
+          await updateBranch(selected.id, { manager_id: authData.user.id });
+        } else {
+          await createAssignment({
+            user_id: authData.user.id,
+            assigned_type: selected.type,
+            assigned_id: selected.id,
+          });
+        }
       }
 
       // Step 4: Handle Maintenance Department if checked

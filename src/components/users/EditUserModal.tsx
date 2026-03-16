@@ -48,6 +48,7 @@ import {
   deleteAssignmentsForUser,
   createAssignment,
 } from '@/lib/userStorage';
+import { updateBranch } from '@/lib/entityStorage';
 import { 
   fetchDepartmentBySlug, 
   addDepartmentMember, 
@@ -216,20 +217,31 @@ export function EditUserModal({ user, open, onOpenChange, onSuccess }: EditUserM
         role: data.role,
       });
 
-      // Handle assignment changes
+      // Handle assignments / manager mapping
       const options = getAssignmentOptions();
       const selected = options.find(o => o.id === data.assigned_id);
-      
-      // Delete existing assignments
-      deleteAssignmentsForUser(user.id);
-      
-      // Create new assignment if needed
+
+      // If the user was previously a branch manager, clear any existing branch.manager_id links
+      if (originalRole === 'branch_manager') {
+        const branches = getBranches();
+        const currentlyManaged = branches.filter(b => b.manager_id === user.id);
+        await Promise.all(currentlyManaged.map(b => updateBranch(b.id, { manager_id: undefined })));
+      }
+
+      // Delete existing user_assignments (not used for branch_manager)
+      await deleteAssignmentsForUser(user.id);
+
       if (data.assigned_id && selected && needsAssignment) {
-        createAssignment({
-          user_id: user.id,
-          assigned_type: selected.type,
-          assigned_id: selected.id,
-        });
+        // Option A: branch managers are stored on branches.manager_id
+        if (data.role === 'branch_manager' && selected.type === 'branch') {
+          await updateBranch(selected.id, { manager_id: user.id });
+        } else {
+          await createAssignment({
+            user_id: user.id,
+            assigned_type: selected.type,
+            assigned_id: selected.id,
+          });
+        }
       }
 
       // Handle Maintenance Department changes

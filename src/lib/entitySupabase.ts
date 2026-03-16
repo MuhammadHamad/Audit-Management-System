@@ -136,14 +136,17 @@ export async function updateRegion(
     manager_id?: string;
   }
 ): Promise<Region> {
+  const patch: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.name !== undefined) patch.name = updates.name;
+  if (updates.description !== undefined) patch.description = updates.description ?? null;
+  if (updates.manager_id !== undefined) patch.manager_id = updates.manager_id ?? null;
+
   const { data, error } = await supabase
     .from('regions')
-    .update({
-      name: updates.name,
-      description: updates.description ?? null,
-      manager_id: updates.manager_id ?? null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq('id', id)
     .select('*')
     .single();
@@ -221,21 +224,24 @@ export async function createBranch(values: {
 }
 
 export async function updateBranch(id: string, updates: Partial<Branch>): Promise<Branch> {
+  const patch: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.name !== undefined) patch.name = updates.name;
+  if (updates.region_id !== undefined) patch.region_id = updates.region_id;
+  if (updates.city !== undefined) patch.city = updates.city;
+  if (updates.address !== undefined) patch.address = updates.address ?? null;
+  if (updates.manager_id !== undefined) patch.manager_id = updates.manager_id ?? null;
+  if (updates.phone !== undefined) patch.phone = updates.phone ?? null;
+  if (updates.email !== undefined) patch.email = updates.email ?? null;
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.opening_date !== undefined) patch.opening_date = updates.opening_date ?? null;
+  if (updates.health_score !== undefined) patch.health_score = updates.health_score;
+
   const { data, error } = await supabase
     .from('branches')
-    .update({
-      name: updates.name,
-      region_id: updates.region_id,
-      city: updates.city,
-      address: updates.address ?? null,
-      manager_id: updates.manager_id ?? null,
-      phone: updates.phone ?? null,
-      email: updates.email ?? null,
-      status: updates.status,
-      opening_date: updates.opening_date ?? null,
-      health_score: updates.health_score,
-      updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq('id', id)
     .select('*')
     .single();
@@ -310,23 +316,26 @@ export async function createBCK(values: {
 }
 
 export async function updateBCK(id: string, updates: Partial<BCK>): Promise<BCK> {
+  const patch: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.name !== undefined) patch.name = updates.name;
+  if (updates.region_id !== undefined) patch.region_id = updates.region_id;
+  if (updates.city !== undefined) patch.city = updates.city;
+  if (updates.address !== undefined) patch.address = updates.address ?? null;
+  if (updates.manager_id !== undefined) patch.manager_id = updates.manager_id ?? null;
+  if (updates.phone !== undefined) patch.phone = updates.phone ?? null;
+  if (updates.email !== undefined) patch.email = updates.email ?? null;
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.production_capacity !== undefined) patch.production_capacity = updates.production_capacity ?? null;
+  if (updates.supplies_branches !== undefined) patch.supplies_branches = updates.supplies_branches ?? [];
+  if (updates.certifications !== undefined) patch.certifications = updates.certifications ?? [];
+  if (updates.health_score !== undefined) patch.health_score = updates.health_score;
+
   const { data, error } = await supabase
     .from('bcks')
-    .update({
-      name: updates.name,
-      region_id: updates.region_id,
-      city: updates.city,
-      address: updates.address ?? null,
-      manager_id: updates.manager_id ?? null,
-      phone: updates.phone ?? null,
-      email: updates.email ?? null,
-      production_capacity: updates.production_capacity ? Number(updates.production_capacity) : null,
-      supplies_branches: updates.supplies_branches as unknown as Json,
-      certifications: updates.certifications as unknown as Json,
-      status: updates.status,
-      health_score: updates.health_score,
-      updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq('id', id)
     .select('*')
     .single();
