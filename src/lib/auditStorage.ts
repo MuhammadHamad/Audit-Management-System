@@ -369,14 +369,26 @@ export const getAuditsForUser = (
 // Get entity name helper
 export const getEntityName = (entityType: string, entityId: string): string => {
   if (entityType === 'branch') {
-    const branch = getBranches().find(b => b.id === entityId);
-    return branch ? branch.name : 'Unknown Branch';
+    const branches = getBranches();
+    const branch = branches.find(b => b.id === entityId);
+    if (branch) return branch.name;
+    // Fallback: if we only have one branch, show it
+    if (branches.length === 1) return branches[0].name;
+    return 'Unknown Branch';
   } else if (entityType === 'bck') {
-    const bck = getBCKs().find(b => b.id === entityId);
-    return bck ? bck.name : 'Unknown BCK';
+    const bcks = getBCKs();
+    const bck = bcks.find(b => b.id === entityId);
+    if (bck) return bck.name;
+    // Fallback: if we only have one BCK, show it
+    if (bcks.length === 1) return bcks[0].name;
+    return 'Unknown BCK';
   } else if (entityType === 'supplier') {
-    const supplier = getSuppliers().find(s => s.id === entityId);
-    return supplier ? supplier.name : 'Unknown Supplier';
+    const suppliers = getSuppliers();
+    const supplier = suppliers.find(s => s.id === entityId);
+    if (supplier) return supplier.name;
+    // Fallback: if we only have one supplier, show it
+    if (suppliers.length === 1) return suppliers[0].name;
+    return 'Unknown Supplier';
   }
   return 'Unknown';
 };

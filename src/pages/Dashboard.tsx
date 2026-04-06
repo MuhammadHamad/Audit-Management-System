@@ -114,6 +114,8 @@ function AuditManagerDashboardView({
   auditWindow,
   setAuditWindow,
 }: AuditManagerDashboardViewProps) {
+  const { user } = useAuth();
+
   // Fetch data using React Query hooks
   const { data: audits = [] } = useAudits();
   const { data: capas = [] } = useCAPAs();
@@ -194,7 +196,10 @@ function AuditManagerDashboardView({
       </div>
 
       {/* Band 1: KPI Cards */}
-      <KPIGrid data={kpiData} passRateLabel={`Pass Rate (${windowLabel})`} />
+      <KPIGrid
+        data={kpiData}
+        passRateLabel={`Pass Rate (${windowLabel})`}
+      />
 
       {/* Band 2: Critical Alerts Strip */}
       <CriticalAlertsStrip alerts={criticalAlerts} />

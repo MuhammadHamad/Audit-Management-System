@@ -348,22 +348,31 @@ export default function VerificationDetail() {
         evidence_urls: sanitizeCapaEvidencePaths(c.evidence_urls),
       }));
 
-      // Sign all evidence and fetch activities in parallel
-      const allEvidencePaths: string[] = [
+      // Sign evidence and fetch activities in parallel.
+      // IMPORTANT: audit evidence and CAPA evidence live in different storage buckets,
+      // so they must be signed with the correct signer.
+      const auditEvidencePaths: string[] = [
         ...auditFindings.flatMap(f => f.evidence_urls || []),
-        ...sanitizedAuditCapas.flatMap(c => c.evidence_urls || []),
-        ...results.flatMap(r => r.evidence_urls || [])
+        ...results.flatMap(r => r.evidence_urls || []),
       ];
 
-      const [allSignedUrls, activities] = await Promise.all([
-        allEvidencePaths.length > 0 
-          ? createSignedAuditEvidenceUrls(allEvidencePaths).catch(() => createSignedCAPAEvidenceUrls(allEvidencePaths)).catch(() => allEvidencePaths)
+      const capaEvidencePaths: string[] = sanitizedAuditCapas.flatMap(c => c.evidence_urls || []);
+
+      const [signedAuditUrls, signedCapaUrls, activities] = await Promise.all([
+        auditEvidencePaths.length > 0
+          ? createSignedAuditEvidenceUrls(auditEvidencePaths).catch(() => auditEvidencePaths)
           : Promise.resolve([]),
-        fetchCAPAActivitiesByCAPAIds(sanitizedAuditCapas.map(c => c.id))
+        capaEvidencePaths.length > 0
+          ? createSignedCAPAEvidenceUrls(capaEvidencePaths)
+              .catch(() => createSignedAuditEvidenceUrls(capaEvidencePaths))
+              .catch(() => capaEvidencePaths)
+          : Promise.resolve([]),
+        fetchCAPAActivitiesByCAPAIds(sanitizedAuditCapas.map(c => c.id)),
       ]);
 
       const signedUrlMap = new Map<string, string>();
-      allEvidencePaths.forEach((path, i) => signedUrlMap.set(path, allSignedUrls[i]));
+      auditEvidencePaths.forEach((path, i) => signedUrlMap.set(path, signedAuditUrls[i]));
+      capaEvidencePaths.forEach((path, i) => signedUrlMap.set(path, signedCapaUrls[i]));
 
       const getSigned = (paths: string[]) => (paths || []).map(p => signedUrlMap.get(p) || p);
 

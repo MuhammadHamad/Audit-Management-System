@@ -89,9 +89,10 @@ export const KPICard: React.FC<KPICardProps> = ({
 interface KPIGridProps {
   data: KPIData;
   passRateLabel?: string;
+  hidePassRate?: boolean;
 }
 
-export const KPIGrid: React.FC<KPIGridProps> = ({ data, passRateLabel = 'Pass Rate (90d)' }) => {
+export const KPIGrid: React.FC<KPIGridProps> = ({ data, passRateLabel = 'Pass Rate (90d)', hidePassRate = false }) => {
   const passRateColor = data.passRate >= 80 ? 'green' : data.passRate >= 60 ? 'yellow' : 'red';
   const openCAPAColor = data.openCAPA > 0 ? 'red' : 'default';
   const criticalColor = data.criticalFindings > 0 ? 'red' : 'default';
@@ -110,13 +111,15 @@ export const KPIGrid: React.FC<KPIGridProps> = ({ data, passRateLabel = 'Pass Ra
         previousValue={data.auditsLastMonth}
         color="blue"
       />
-      <KPICard 
-        label={passRateLabel} 
-        value={data.passRate} 
-        previousValue={data.passRatePrevious}
-        color={passRateColor}
-        suffix="%"
-      />
+      {!hidePassRate && (
+        <KPICard 
+          label={passRateLabel} 
+          value={data.passRate} 
+          previousValue={data.passRatePrevious}
+          color={passRateColor}
+          suffix="%"
+        />
+      )}
       <KPICard 
         label="Open CAPA" 
         value={data.openCAPA} 

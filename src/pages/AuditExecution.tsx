@@ -21,13 +21,14 @@ import { AuditSummary } from '@/components/audits/execution/AuditSummary';
 import { getEntityName } from '@/lib/auditStorage';
 import { getUserById } from '@/lib/entityStorage';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   buildAuditComprehensiveExportBundle,
   exportAuditComprehensiveReportToExcel,
   openAuditComprehensiveReportPrintView,
 } from '@/lib/capaExport';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function AuditExecution() {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +37,7 @@ export default function AuditExecution() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isExportingAudit, setIsExportingAudit] = useState(false);
+  const [resolvedEntityName, setResolvedEntityName] = useState<string>('');
 
   const {
     audit,
@@ -154,6 +156,74 @@ export default function AuditExecution() {
     });
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const resolve = async () => {
+      if (!audit?.entity_type || !audit?.entity_id) return;
+
+      const nameFromCache = getEntityName(audit.entity_type, audit.entity_id);
+      console.log('🔍 Entity debug', {
+        entityType: audit.entity_type,
+        entityId: audit.entity_id,
+        nameFromCache,
+      });
+      setResolvedEntityName(nameFromCache);
+
+      if (!nameFromCache.toLowerCase().startsWith('unknown')) {
+        console.log('✅ Resolved from cache:', nameFromCache);
+        return;
+      }
+
+      try {
+        const table = audit.entity_type === 'branch'
+          ? 'branches'
+          : audit.entity_type === 'bck'
+            ? 'bcks'
+            : 'suppliers';
+
+        console.log('🔎 Direct lookup', { table, id: audit.entity_id });
+        const { data, error } = await supabase
+          .from(table)
+          .select('name')
+          .eq('id', audit.entity_id)
+          .maybeSingle();
+
+        console.log('Direct lookup result', { data, error });
+
+        if (error && audit.entity_type !== 'branch') return;
+        if (!cancelled && data?.name) {
+          console.log('✅ Resolved via direct lookup:', data.name);
+          setResolvedEntityName(data.name);
+          return;
+        }
+
+        // Demo-friendly fallback: if the audit references a branch id we can't resolve
+        // (e.g. stale local data), but the user can see exactly one branch, show it.
+        if (audit.entity_type === 'branch') {
+          const { data: branches, error: branchesError } = await supabase
+            .from('branches')
+            .select('id,name')
+            .order('created_at', { ascending: true })
+            .limit(2);
+
+          console.log('Single-branch fallback', { branches, branchesError });
+
+          if (!branchesError && !cancelled && Array.isArray(branches) && branches.length === 1) {
+            console.log('✅ Resolved via single-branch fallback:', branches[0].name);
+            setResolvedEntityName(branches[0].name);
+          }
+        }
+      } catch (e) {
+        console.error('Entity resolve error', e);
+      }
+    };
+
+    void resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [audit?.entity_type, audit?.entity_id]);
+
   if (isLoading) {
     return (
       <div className="space-y-6 pb-24">
@@ -178,7 +248,7 @@ export default function AuditExecution() {
     );
   }
 
-  const entityName = getEntityName(audit.entity_type, audit.entity_id);
+  const entityName = resolvedEntityName || getEntityName(audit.entity_type, audit.entity_id);
   const auditor = audit.auditor_id ? getUserById(audit.auditor_id) : null;
 
   const statusColors: Record<string, string> = {

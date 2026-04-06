@@ -16,7 +16,11 @@ function getEntityNameFromLists(
   suppliers: { id: string; name: string }[]
 ): string {
   if (entityType === 'branch') {
-    return branches.find(b => b.id === entityId)?.name ?? 'Unknown Branch';
+    const found = branches.find(b => b.id === entityId);
+    if (found) return found.name;
+    // Fallback: if we only have one branch, show it
+    if (branches.length === 1) return branches[0].name;
+    return 'Unknown Branch';
   }
   if (entityType === 'bck') {
     return bcks.find(b => b.id === entityId)?.name ?? 'Unknown BCK';

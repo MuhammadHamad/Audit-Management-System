@@ -400,13 +400,13 @@ export function ChecklistItem({
 
         {/* Evidence thumbnails */}
         {totalEvidence > 0 && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <div className="flex flex-wrap gap-3 pt-1">
             {state.evidenceUrls.map((url, idx) => (
-              <div key={`url-${idx}`} className="relative">
+              <div key={`url-${idx}`} className="relative h-14 w-14">
                 <img
                   src={url}
                   alt={`Evidence ${idx + 1}`}
-                  className="h-14 w-14 object-cover rounded-md border"
+                  className="h-full w-full object-cover rounded-md border"
                 />
                 {!isReadOnly && (
                   <button
@@ -420,11 +420,11 @@ export function ChecklistItem({
               </div>
             ))}
             {state.evidenceFiles.map((file, idx) => (
-              <div key={`file-${idx}`} className="relative">
+              <div key={`file-${idx}`} className="relative h-14 w-14">
                 <img
                   src={URL.createObjectURL(file)}
                   alt={`New Evidence ${idx + 1}`}
-                  className="h-14 w-14 object-cover rounded-md border"
+                  className="h-full w-full object-cover rounded-md border"
                 />
                 {!isReadOnly && (
                   <button
@@ -522,13 +522,13 @@ export function ChecklistItem({
 
           {/* Photo thumbnails for photo type */}
           {item.type === 'photo' && totalEvidence > 0 && (
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-2">
+            <div className="flex flex-wrap gap-3 mt-2">
               {state.evidenceUrls.map((url, idx) => (
-                <div key={`url-${idx}`} className="relative">
+                <div key={`url-${idx}`} className="relative h-14 w-14">
                   <img
                     src={url}
                     alt={`Evidence ${idx + 1}`}
-                    className="h-14 w-14 object-cover rounded-md border"
+                    className="h-full w-full object-cover rounded-md border"
                   />
                   {!isReadOnly && (
                     <button
@@ -542,11 +542,11 @@ export function ChecklistItem({
                 </div>
               ))}
               {state.evidenceFiles.map((file, idx) => (
-                <div key={`file-${idx}`} className="relative">
+                <div key={`file-${idx}`} className="relative h-14 w-14">
                   <img
                     src={URL.createObjectURL(file)}
                     alt={`New Evidence ${idx + 1}`}
-                    className="h-14 w-14 object-cover rounded-md border"
+                    className="h-full w-full object-cover rounded-md border"
                   />
                   {!isReadOnly && (
                     <button

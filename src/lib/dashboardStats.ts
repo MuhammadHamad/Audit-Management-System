@@ -503,13 +503,22 @@ const getEntityName = (
   entityId: string
 ): string => {
   if (entityType === 'branch') {
-    const branch = getBranches().find(b => b.id === entityId);
-    return branch?.name || 'Unknown Branch';
+    const branches = getBranches();
+    const branch = branches.find(b => b.id === entityId);
+    if (branch) return branch.name;
+    if (branches.length === 1) return branches[0].name;
+    return 'Unknown Branch';
   } else if (entityType === 'bck') {
-    const bck = getBCKs().find(b => b.id === entityId);
-    return bck?.name || 'Unknown BCK';
+    const bcks = getBCKs();
+    const bck = bcks.find(b => b.id === entityId);
+    if (bck) return bck.name;
+    if (bcks.length === 1) return bcks[0].name;
+    return 'Unknown BCK';
   } else {
-    const supplier = getSuppliers().find(s => s.id === entityId);
-    return supplier?.name || 'Unknown Supplier';
+    const suppliers = getSuppliers();
+    const supplier = suppliers.find(s => s.id === entityId);
+    if (supplier) return supplier.name;
+    if (suppliers.length === 1) return suppliers[0].name;
+    return 'Unknown Supplier';
   }
 };
