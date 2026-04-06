@@ -58,7 +58,12 @@ export default function Dashboard() {
     case 'area_manager':
     case 'regional_operational_manager':
     case 'national_operational_manager':
-      return <Navigate to="/capa" replace />;
+      return (
+        <EscalationManagerDashboardView
+          auditWindow={auditWindow}
+          setAuditWindow={setAuditWindow}
+        />
+      );
     
     case 'regional_manager':
       return <RegionalManagerDashboard user={user} />;
@@ -106,6 +111,60 @@ interface AuditManagerDashboardViewProps {
   setFilterNeedsAttention: (value: boolean) => void;
   auditWindow: '30d' | '6m' | '1y';
   setAuditWindow: (value: '30d' | '6m' | '1y') => void;
+}
+
+interface EscalationManagerDashboardViewProps {
+  auditWindow: '30d' | '6m' | '1y';
+  setAuditWindow: (value: '30d' | '6m' | '1y') => void;
+}
+
+function EscalationManagerDashboardView({
+  auditWindow,
+  setAuditWindow,
+}: EscalationManagerDashboardViewProps) {
+  const { data: capas = [] } = useCAPAs();
+
+  const windowLabel = useMemo(() => {
+    switch (auditWindow) {
+      case '6m':
+        return '6m';
+      case '1y':
+        return '1y';
+      case '30d':
+      default:
+        return '30d';
+    }
+  }, [auditWindow]);
+
+  const capaOverview = useMemo(() => calculateCAPAOverview(capas, getEntityName), [capas]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+        <Select value={auditWindow} onValueChange={(v) => setAuditWindow(v as any)}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Audit window" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="30d">Last 30 days</SelectItem>
+            <SelectItem value="6m">Last 6 months</SelectItem>
+            <SelectItem value="1y">Last 1 year</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>CAPA Overview</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Showing CAPA status summary for the last {windowLabel}.
+        </CardContent>
+      </Card>
+
+      <CAPAOverview data={capaOverview} />
+    </div>
+  );
 }
 
 function AuditManagerDashboardView({
