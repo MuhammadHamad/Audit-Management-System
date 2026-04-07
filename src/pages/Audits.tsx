@@ -121,6 +121,7 @@ export default function AuditsPage() {
   const { data: bcks = [] } = useBCKs();
   const { data: suppliers = [] } = useSuppliers();
   const [entityNameOverrides, setEntityNameOverrides] = useState<Record<string, string>>({});
+  const [auditorNameOverrides, setAuditorNameOverrides] = useState<Record<string, string>>({});
 
   const { data: templates = [] } = useQuery({
     queryKey: ['templates'],
@@ -208,9 +209,54 @@ export default function AuditsPage() {
   // Get auditor name
   const getAuditorName = (auditorId?: string): string => {
     if (!auditorId) return 'Unassigned';
+    const override = auditorNameOverrides[auditorId];
+    if (override) return override;
     const auditor = getUserById(auditorId);
     return auditor?.full_name || 'Unknown';
   };
+
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        (allAudits ?? [])
+          .map(a => a.auditor_id)
+          .filter((id): id is string => !!id)
+          .filter((id) => {
+            if (auditorNameOverrides[id]) return false;
+            const cached = getUserById(id);
+            return !cached?.full_name;
+          })
+      )
+    );
+
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id,full_name')
+          .in('id', ids);
+        if (error) throw error;
+        if (cancelled) return;
+        setAuditorNameOverrides((prev) => {
+          const next = { ...prev };
+          for (const row of (data ?? []) as any[]) {
+            if (row?.id && row?.full_name) next[String(row.id)] = String(row.full_name);
+          }
+          return next;
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [allAudits, auditorNameOverrides]);
 
   const visibleAudits = useMemo(() => {
     if (!user) return [] as Audit[];

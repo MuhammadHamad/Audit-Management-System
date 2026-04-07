@@ -47,7 +47,9 @@ export function ChecklistItem({
   const [showManualFinding, setShowManualFinding] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasResponse = state.response !== null;
-  const totalEvidence = state.evidenceFiles.length + state.evidenceUrls.length;
+  const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+  const signedEvidenceUrls = (state.evidenceUrls || []).filter((u) => typeof u === 'string' && isHttpUrl(u));
+  const totalEvidence = state.evidenceFiles.length + signedEvidenceUrls.length;
 
   // Determine border color based on state
   const getBorderColor = () => {
@@ -401,7 +403,7 @@ export function ChecklistItem({
         {/* Evidence thumbnails */}
         {totalEvidence > 0 && (
           <div className="flex flex-wrap gap-3 pt-1">
-            {state.evidenceUrls.map((url, idx) => (
+            {signedEvidenceUrls.map((url, idx) => (
               <div key={`url-${idx}`} className="relative h-14 w-14">
                 <img
                   src={url}
@@ -523,7 +525,7 @@ export function ChecklistItem({
           {/* Photo thumbnails for photo type */}
           {item.type === 'photo' && totalEvidence > 0 && (
             <div className="flex flex-wrap gap-3 mt-2">
-              {state.evidenceUrls.map((url, idx) => (
+              {signedEvidenceUrls.map((url, idx) => (
                 <div key={`url-${idx}`} className="relative h-14 w-14">
                   <img
                     src={url}

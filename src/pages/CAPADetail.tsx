@@ -44,6 +44,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { CAPA, Finding, SubTask } from '@/lib/auditExecutionStorage';
 import { fetchAuditById } from '@/lib/auditSupabase';
 import { fetchFindingById, forceEscalateCAPA } from '@/lib/executionSupabase';
+import type { AuditTemplate } from '@/lib/templateStorage';
+import { fetchTemplateById } from '@/lib/templateSupabase';
 import {
   createSignedCAPAEvidenceUrls,
   createSignedAuditEvidenceUrls,
@@ -82,6 +84,15 @@ export default function CAPADetailPage() {
   const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
   const [isSubmittingForVerification, setIsSubmittingForVerification] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  const [auditContext, setAuditContext] = useState<{
+    templateName?: string;
+    sectionName?: string;
+    questionText?: string;
+    responseText?: string;
+    manualFinding?: string | null;
+    evidenceUrls: string[];
+  } | null>(null);
   
   // Staff for sub-task assignment
   const [availableStaff, setAvailableStaff] = useState<{ id: string; full_name: string }[]>([]);
@@ -130,18 +141,116 @@ export default function CAPADetailPage() {
     ? capa.sub_tasks?.find(st => st.assigned_to_user_id === user?.id)
     : null;
 
+  const isHttpUrl = (value: string): boolean => {
+    return /^https?:\/\//i.test(value);
+  };
+
+  const trySignAuditEvidencePaths = useCallback(async (paths: string[]): Promise<string[]> => {
+    if (paths.length === 0) return [];
+
+    const input = paths.map(p => String(p || ''));
+    const alreadyUrls = new Map<number, string>();
+    const toSign: string[] = [];
+    const toSignIdx: number[] = [];
+
+    for (let i = 0; i < input.length; i++) {
+      const p = input[i];
+      if (!p) continue;
+      if (isHttpUrl(p)) {
+        alreadyUrls.set(i, p);
+        continue;
+      }
+      toSign.push(p);
+      toSignIdx.push(i);
+    }
+
+    if (toSign.length === 0) return input;
+
+    try {
+      const signed = await createSignedAuditEvidenceUrls(toSign);
+      const out = input.slice();
+      for (let j = 0; j < toSignIdx.length; j++) {
+        out[toSignIdx[j]] = signed[j] || out[toSignIdx[j]];
+      }
+      for (const [i, url] of alreadyUrls.entries()) out[i] = url;
+      return out;
+    } catch {
+      console.warn('Failed to sign audit evidence paths; falling back to original paths');
+      return input;
+    }
+  }, []);
+
   const trySignEvidencePaths = useCallback(async (paths: string[]): Promise<string[]> => {
     if (paths.length === 0) return [];
+
+    const input = paths.map(p => String(p || ''));
+    const alreadyUrls = new Map<number, string>();
+    const toSign: string[] = [];
+    const toSignIdx: number[] = [];
+
+    for (let i = 0; i < input.length; i++) {
+      const p = input[i];
+      if (!p) continue;
+      if (isHttpUrl(p)) {
+        alreadyUrls.set(i, p);
+        continue;
+      }
+      toSign.push(p);
+      toSignIdx.push(i);
+    }
+
+    if (toSign.length === 0) return input;
+
     try {
-      return await createSignedCAPAEvidenceUrls(paths);
+      const signed = await createSignedCAPAEvidenceUrls(toSign);
+      const out = input.slice();
+      for (let j = 0; j < toSignIdx.length; j++) {
+        out[toSignIdx[j]] = signed[j] || out[toSignIdx[j]];
+      }
+      for (const [i, url] of alreadyUrls.entries()) out[i] = url;
+      return out;
     } catch {
       try {
-        return await createSignedAuditEvidenceUrls(paths);
+        const signed = await createSignedAuditEvidenceUrls(toSign);
+        const out = input.slice();
+        for (let j = 0; j < toSignIdx.length; j++) {
+          out[toSignIdx[j]] = signed[j] || out[toSignIdx[j]];
+        }
+        for (const [i, url] of alreadyUrls.entries()) out[i] = url;
+        return out;
       } catch {
         console.warn('Failed to sign evidence paths; falling back to original paths');
-        return paths;
+        return input;
       }
     }
+  }, []);
+
+  const formatAuditResponse = useCallback((response: any): string => {
+    if (!response || typeof response !== 'object') return '—';
+    const value = (response as any).value;
+    if (value === null || value === undefined) return '—';
+
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') return String(value);
+
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, any>);
+      if (entries.length === 0) return '—';
+
+      const boolEntries = entries.filter(([, v]) => typeof v === 'boolean') as Array<[string, boolean]>;
+      if (boolEntries.length === entries.length) {
+        const failed = boolEntries.filter(([, v]) => !v).length;
+        return failed === 0 ? 'All checked' : `${failed} failed`;
+      }
+
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '—';
+      }
+    }
+
+    return '—';
   }, []);
 
   const isImageUrl = (url: string): boolean => {
@@ -260,6 +369,55 @@ export default function CAPADetailPage() {
 
       setFinding(findingData);
       if (info) setEntityInfo(info);
+
+      try {
+        const auditId = capaData.audit_id;
+        const templateId = (auditData as any)?.template_id as string | undefined;
+        const itemId = (findingData as any)?.item_id as string | undefined;
+
+        if (!auditId || !itemId) {
+          setAuditContext(null);
+        } else {
+          const [templateData, auditResultRow] = await Promise.all([
+            templateId ? fetchTemplateById(templateId).catch(() => null) : Promise.resolve(null),
+            supabase
+              .from('audit_results')
+              .select('response,evidence_urls,manual_finding,section_id,item_id')
+              .eq('audit_id', auditId)
+              .eq('item_id', itemId)
+              .maybeSingle()
+              .then((r) => (r.error ? null : (r.data as any))),
+          ]);
+
+          const template = templateData as AuditTemplate | null;
+          const questionText = template
+            ? (() => {
+                for (const s of template.checklist_json.sections ?? []) {
+                  for (const it of s.items ?? []) {
+                    if (it.id === itemId) return it.text;
+                  }
+                }
+                return undefined;
+              })()
+            : undefined;
+
+          const rawEvidence = Array.isArray(auditResultRow?.evidence_urls)
+            ? (auditResultRow.evidence_urls as string[])
+            : [];
+          const signedEvidence = (await trySignAuditEvidencePaths(rawEvidence)).filter(isHttpUrl);
+
+          setAuditContext({
+            templateName: template?.name,
+            sectionName: (findingData as any)?.section_name ?? undefined,
+            questionText,
+            responseText: formatAuditResponse(auditResultRow?.response),
+            manualFinding: (auditResultRow?.manual_finding ?? null) as string | null,
+            evidenceUrls: signedEvidence,
+          });
+        }
+      } catch {
+        setAuditContext(null);
+      }
 
       // Activity processing
       setActivities(activityData.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
@@ -387,45 +545,76 @@ export default function CAPADetailPage() {
   };
 
   const handleEvidenceUpload = async (files: FileList, isSubTask: boolean = false, subTaskId?: string) => {
-    const paths: string[] = [];
-
     setIsUploadingEvidence(true);
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const { path } = await uploadCAPAEvidenceFile(capa!.id, file);
-        paths.push(path);
-      }
+      const now = new Date().toISOString();
+      const fileArr = Array.from(files);
+
+      const uploads = await Promise.all(
+        fileArr.map(async (file) => {
+          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+          const safeExt = (ext || 'bin').toLowerCase();
+          const objectName = `${crypto.randomUUID()}.${safeExt}`;
+          const path = `${capa!.id}/${objectName}`;
+
+          const { error: uploadError } = await supabase
+            .storage
+            .from('capa-evidence')
+            .upload(path, file, { contentType: file.type, upsert: false });
+          if (uploadError) throw uploadError;
+
+          return path;
+        })
+      );
+
+      const newPaths = uploads.filter(Boolean);
+
+      const { data: signedBatch, error: signedError } = await supabase
+        .storage
+        .from('capa-evidence')
+        .createSignedUrls(newPaths, 60 * 60 * 24 * 7);
+      if (signedError) throw signedError;
+
+      const signedUrls = (signedBatch ?? []).map((d: any, i: number) => d?.signedUrl || newPaths[i]);
 
       if (isSubTask && subTaskId) {
         const existingPaths = subTaskEvidencePathsById[subTaskId] ?? [];
         const updatedSigned = (capa!.sub_tasks || []).map(st =>
           st.id === subTaskId
-            ? { ...st, evidence_urls: [...existingPaths, ...paths] }
+            ? { ...st, evidence_urls: [...existingPaths, ...newPaths] }
             : st
         );
         // Convert to payload paths for all tasks to avoid overwriting paths with signed URLs
         const payload = updatedSigned.map(st => ({
           ...st,
-          evidence_urls: st.id === subTaskId ? [...existingPaths, ...paths] : (subTaskEvidencePathsById[st.id] ?? []),
+          evidence_urls: st.id === subTaskId ? [...existingPaths, ...newPaths] : (subTaskEvidencePathsById[st.id] ?? []),
         }));
 
         await updateCAPA(capa!.id, { sub_tasks: payload as any[] });
         setSubTaskEvidencePathsById(prev => ({
           ...prev,
-          [subTaskId]: [...existingPaths, ...paths],
+          [subTaskId]: [...existingPaths, ...newPaths],
         }));
+
+        setCAPA(prev => {
+          if (!prev) return prev;
+          const nextSubTasks = (prev.sub_tasks || []).map(st =>
+            st.id === subTaskId
+              ? { ...st, evidence_urls: [...(st.evidence_urls || []), ...signedUrls] }
+              : st
+          );
+          return { ...prev, sub_tasks: nextSubTasks, updated_at: now };
+        });
       } else {
-        const nextPaths = [...capaEvidencePaths, ...paths];
+        const nextPaths = [...capaEvidencePaths, ...newPaths];
         await updateCAPA(capa!.id, { evidence_urls: nextPaths });
         setCapaEvidencePaths(nextPaths);
 
-        const signedNew = await trySignEvidencePaths(paths);
-
         setCAPA(prev => prev ? {
           ...prev,
-          evidence_urls: [...(prev.evidence_urls || []), ...signedNew],
+          evidence_urls: [...(prev.evidence_urls || []), ...signedUrls],
+          updated_at: now,
         } : prev);
       }
 
@@ -835,6 +1024,15 @@ export default function CAPADetailPage() {
               </>
             )}
 
+            {capa?.audit_id && (
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/audits/${capa.audit_id}`)}
+              >
+                View Full Audit
+              </Button>
+            )}
+
             {canForceEscalate && (
               <Button variant="outline" onClick={handleForceEscalate} disabled={isExporting}>
                 Force Escalate
@@ -918,6 +1116,86 @@ export default function CAPADetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {auditContext && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Audit Context</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-muted-foreground">Template</p>
+                <p className="font-medium">{auditContext.templateName || '—'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Section</p>
+                <p className="font-medium">{auditContext.sectionName || '—'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Auditor response</p>
+                <p className="font-medium">{auditContext.responseText || '—'}</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm text-muted-foreground">Question</p>
+              <p className="text-sm mt-1">{auditContext.questionText || '—'}</p>
+            </div>
+
+            {!!auditContext.manualFinding?.trim() && (
+              <div>
+                <p className="text-sm text-muted-foreground">Observation note</p>
+                <div className="p-4 bg-muted/50 rounded-md whitespace-pre-wrap text-sm mt-2">
+                  {auditContext.manualFinding}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-sm text-muted-foreground">Auditor evidence</p>
+              {auditContext.evidenceUrls.length === 0 ? (
+                <div className="p-6 border border-dashed rounded-lg text-center text-sm text-muted-foreground mt-2">
+                  No auditor evidence.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-2">
+                  {auditContext.evidenceUrls.map((url, idx) => (
+                    <div key={idx} className="relative">
+                      {isImageUrl(url) ? (
+                        <img
+                          src={url}
+                          alt={`Auditor evidence ${idx + 1}`}
+                          className="w-full h-28 object-cover rounded-md cursor-pointer"
+                          onClick={() => openLightbox(auditContext.evidenceUrls.filter(isImageUrl), 0)}
+                        />
+                      ) : isPdfUrl(url) ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center w-full h-28 rounded-md border bg-muted/30 hover:bg-muted/40"
+                        >
+                          <FileText className="h-8 w-8 text-muted-foreground" />
+                        </a>
+                      ) : (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center w-full h-28 rounded-md border bg-muted/30 hover:bg-muted/40 text-xs text-muted-foreground"
+                        >
+                          View file
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Section B: Corrective Action & Evidence */}
       <Card>

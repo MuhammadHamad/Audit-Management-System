@@ -25,7 +25,24 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   // Check route-specific access
-  const routeRoles = allowedRoles || routeAccess[location.pathname];
+  const getRouteRoles = (): UserRole[] | undefined => {
+    if (allowedRoles) return allowedRoles;
+
+    const exact = routeAccess[location.pathname];
+    if (exact) return exact;
+
+    const path = location.pathname;
+    if (path.startsWith('/audits/') && !path.startsWith('/audits/pending-verification')) {
+      const parts = path.split('/').filter(Boolean);
+      if (parts.length === 2) {
+        return routeAccess['/audits/:id'];
+      }
+    }
+
+    return undefined;
+  };
+
+  const routeRoles = getRouteRoles();
   if (routeRoles && !routeRoles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
   }
