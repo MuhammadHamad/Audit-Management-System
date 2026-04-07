@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ScrollBar } from '@/components/ui/scroll-area';
+import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAudits, useBranches, useBCKs, useSuppliers } from '@/hooks/useDashboardData';
+import { supabase } from '@/integrations/supabase/client';
 import type { User } from '@/types';
 
 function getEntityNameFromLists(
@@ -41,6 +44,7 @@ export function AuditorDashboard({ user }: { user: User }) {
   const { data: branches = [] } = useBranches();
   const { data: bcks = [] } = useBCKs();
   const { data: suppliers = [] } = useSuppliers();
+  const [entityNameOverrides, setEntityNameOverrides] = useState<Record<string, string>>({});
 
   const myAudits = useMemo(() => {
     return audits.filter(a => a.auditor_id === user.id);
@@ -70,8 +74,7 @@ export function AuditorDashboard({ user }: { user: User }) {
     const getSortDate = (a: any) => a.scheduled_date || a.created_at || '';
     return [...myAudits]
       .filter(a => a.status !== 'cancelled')
-      .sort((a, b) => getSortDate(a).localeCompare(getSortDate(b)))
-      .slice(0, 8);
+      .sort((a, b) => getSortDate(b).localeCompare(getSortDate(a)));
   }, [myAudits]);
 
   const recentAudits = useMemo(() => {
@@ -79,8 +82,105 @@ export function AuditorDashboard({ user }: { user: User }) {
     return [...myAudits]
       .filter(a => ['submitted', 'pending_verification', 'approved', 'rejected', 'cancelled'].includes(a.status))
       .sort((a, b) => getSortDate(b).localeCompare(getSortDate(a)))
-      .slice(0, 8);
   }, [myAudits]);
+
+  useEffect(() => {
+    const unknowns = new Map<string, { entity_type: string; entity_id: string }>();
+
+    const scan = (auditList: any[]) => {
+      for (const a of auditList) {
+        const key = `${a.entity_type}:${a.entity_id}`;
+        if (entityNameOverrides[key]) continue;
+        const name = getEntityNameFromLists(a.entity_type, a.entity_id, branches, bcks, suppliers);
+        if (name.startsWith('Unknown')) unknowns.set(key, { entity_type: a.entity_type, entity_id: a.entity_id });
+      }
+    };
+
+    scan(assignedAudits);
+    scan(recentAudits);
+
+    if (unknowns.size === 0) return;
+
+    let cancelled = false;
+
+    const fetchMissing = async () => {
+      const byType = {
+        branch: new Map<string, string[]>(),
+        bck: new Map<string, string[]>(),
+        supplier: new Map<string, string[]>(),
+      } as const;
+
+      for (const [key, { entity_type, entity_id }] of unknowns.entries()) {
+        if (entity_type === 'branch') byType.branch.set(entity_id, [...(byType.branch.get(entity_id) ?? []), key]);
+        if (entity_type === 'bck') byType.bck.set(entity_id, [...(byType.bck.get(entity_id) ?? []), key]);
+        if (entity_type === 'supplier') byType.supplier.set(entity_id, [...(byType.supplier.get(entity_id) ?? []), key]);
+      }
+
+      const applyRows = (rows: Array<{ id: string; name: string }>, keysById: Map<string, string[]>) => {
+        if (rows.length === 0) return;
+        setEntityNameOverrides(prev => {
+          const next = { ...prev };
+          for (const r of rows) {
+            const keys = keysById.get(r.id) ?? [];
+            for (const k of keys) next[k] = r.name;
+          }
+          return next;
+        });
+      };
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.branch.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('branches').select('id,name').in('id', ids);
+          if (error) {
+            console.error('Failed to resolve branch names (likely RLS)', { ids, error });
+          } else {
+            applyRows((data ?? []) as any, byType.branch);
+            if ((data ?? []).length === 0) console.warn('No branch rows returned for auditor entity lookup (likely RLS)', { ids });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to resolve branch names (unexpected)', { error: e });
+      }
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.bck.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('bcks').select('id,name').in('id', ids);
+          if (error) {
+            console.error('Failed to resolve BCK names', { ids, error });
+          } else {
+            applyRows((data ?? []) as any, byType.bck);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to resolve BCK names (unexpected)', { error: e });
+      }
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.supplier.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('suppliers').select('id,name').in('id', ids);
+          if (error) {
+            console.error('Failed to resolve supplier names', { ids, error });
+          } else {
+            applyRows((data ?? []) as any, byType.supplier);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to resolve supplier names (unexpected)', { error: e });
+      }
+    };
+
+    void fetchMissing();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assignedAudits, recentAudits, branches, bcks, suppliers, entityNameOverrides]);
 
   if (auditsLoading) {
     return (
@@ -95,112 +195,116 @@ export function AuditorDashboard({ user }: { user: User }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Assigned</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.assignedTotal}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">Assigned</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.assignedTotal}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">In Progress</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.inProgress}</div>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">In Progress</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.inProgress}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Submitted</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.submitted}</div>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">Submitted</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.submitted}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Approved</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.approved}</div>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">Approved</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.approved}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Rejected</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.rejected}</div>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">Rejected</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.rejected}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Avg Score / Pass Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kpis.avgScore.toFixed(1)}%</div>
-            <div className="text-xs text-muted-foreground mt-1">Pass rate: {kpis.passRate}%</div>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="text-xs font-medium text-muted-foreground">Avg Score / Pass Rate</div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{kpis.avgScore.toFixed(1)}%</div>
+            <div className="mt-1 text-xs text-muted-foreground">Pass rate: {kpis.passRate}%</div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Assigned Audits</CardTitle>
+      <div className="space-y-6">
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base">Assigned Audits</CardTitle>
+              <div className="text-xs text-muted-foreground tabular-nums">{assignedAudits.length}</div>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             {assignedAudits.length === 0 ? (
               <div className="text-sm text-muted-foreground">No assigned audits.</div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Entity</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assignedAudits.map(audit => {
-                    const entityName = getEntityNameFromLists(
-                      audit.entity_type,
-                      audit.entity_id,
-                      branches,
-                      bcks,
-                      suppliers
-                    );
+              <div className="rounded-md border border-muted/60 overflow-hidden">
+                <ScrollAreaPrimitive.Root className="relative h-[420px] overflow-hidden">
+                  <ScrollAreaPrimitive.Viewport className="h-full w-full">
+                    <div className="min-w-[640px]">
+                      <Table>
+                        <TableHeader className="sticky top-0 z-10 bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+                          <TableRow>
+                            <TableHead className="text-xs">Code</TableHead>
+                            <TableHead className="text-xs">Entity</TableHead>
+                            <TableHead className="text-xs">Date</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {assignedAudits.map(audit => {
+                            const key = `${audit.entity_type}:${audit.entity_id}`;
+                            const fallback = entityNameOverrides[key];
+                            const entityName = fallback || getEntityNameFromLists(
+                              audit.entity_type,
+                              audit.entity_id,
+                              branches,
+                              bcks,
+                              suppliers
+                            );
 
-                    return (
-                      <TableRow key={audit.id}>
-                        <TableCell className="font-mono text-xs">{audit.audit_code}</TableCell>
-                        <TableCell className="text-sm">{entityName}</TableCell>
-                        <TableCell className="text-sm">{format(new Date(audit.scheduled_date), 'MMM d, yyyy')}</TableCell>
-                        <TableCell>
-                          <Badge variant={statusBadgeVariant(audit.status)} className="text-[10px] uppercase">
-                            {audit.status.replace('_', ' ')}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button asChild size="sm" className="bg-[#8B0000] hover:bg-[#8B0000]/90">
-                            <Link to={`/audits/${audit.id}`}>Open</Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                            return (
+                              <TableRow key={audit.id} className="hover:bg-muted/40 transition-colors">
+                                <TableCell className="font-mono text-xs whitespace-nowrap">{audit.audit_code}</TableCell>
+                                <TableCell className="text-sm max-w-[240px] truncate">{entityName}</TableCell>
+                                <TableCell className="text-sm whitespace-nowrap">{format(new Date(audit.scheduled_date), 'MMM d, yyyy')}</TableCell>
+                                <TableCell>
+                                  <Badge variant={statusBadgeVariant(audit.status)} className="text-[10px] uppercase tracking-wide">
+                                    {audit.status.replace('_', ' ')}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button asChild size="sm" variant="outline" className="h-8 px-3">
+                                    <Link to={`/audits/${audit.id}`}>Open</Link>
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </ScrollAreaPrimitive.Viewport>
+                  <ScrollBar />
+                  <ScrollBar orientation="horizontal" />
+                  <ScrollAreaPrimitive.Corner />
+                </ScrollAreaPrimitive.Root>
+              </div>
             )}
 
             <div className="mt-3 flex justify-end">
@@ -211,44 +315,58 @@ export function AuditorDashboard({ user }: { user: User }) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Recent History</CardTitle>
+        <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 border-muted/60 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base">Recent History</CardTitle>
+              <div className="text-xs text-muted-foreground tabular-nums">{recentAudits.length}</div>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             {recentAudits.length === 0 ? (
               <div className="text-sm text-muted-foreground">No completed/submitted audits yet.</div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Score</TableHead>
-                    <TableHead className="text-right">Open</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentAudits.map(audit => (
-                    <TableRow key={audit.id}>
-                      <TableCell className="font-mono text-xs">{audit.audit_code}</TableCell>
-                      <TableCell>
-                        <Badge variant={statusBadgeVariant(audit.status)} className="text-[10px] uppercase">
-                          {audit.status.replace('_', ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {typeof audit.score === 'number' ? `${audit.score.toFixed(1)}%` : '-'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button asChild size="sm" variant="outline">
-                          <Link to={`/audits/${audit.id}`}>View</Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="rounded-md border border-muted/60 overflow-hidden">
+                <ScrollAreaPrimitive.Root className="relative h-[420px] overflow-hidden">
+                  <ScrollAreaPrimitive.Viewport className="h-full w-full">
+                    <div className="min-w-[560px]">
+                      <Table>
+                        <TableHeader className="sticky top-0 z-10 bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+                          <TableRow>
+                            <TableHead className="text-xs">Code</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="text-xs">Score</TableHead>
+                            <TableHead className="text-right">Open</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {recentAudits.map(audit => (
+                            <TableRow key={audit.id} className="hover:bg-muted/40 transition-colors">
+                              <TableCell className="font-mono text-xs whitespace-nowrap">{audit.audit_code}</TableCell>
+                              <TableCell>
+                                <Badge variant={statusBadgeVariant(audit.status)} className="text-[10px] uppercase tracking-wide">
+                                  {audit.status.replace('_', ' ')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm whitespace-nowrap tabular-nums">
+                                {typeof audit.score === 'number' ? `${audit.score.toFixed(1)}%` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button asChild size="sm" variant="outline" className="h-8 px-3">
+                                  <Link to={`/audits/${audit.id}`}>View</Link>
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </ScrollAreaPrimitive.Viewport>
+                  <ScrollBar />
+                  <ScrollBar orientation="horizontal" />
+                  <ScrollAreaPrimitive.Corner />
+                </ScrollAreaPrimitive.Root>
+              </div>
             )}
           </CardContent>
         </Card>

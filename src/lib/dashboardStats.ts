@@ -71,6 +71,7 @@ export interface CAPAOverviewData {
   inProgress: number;
   pendingVerification: number;
   escalated: number;
+  expired: number;
   closed: number;
   overdue: number;
   topOverdue: Array<{
@@ -384,10 +385,11 @@ export const getCAPAOverview = (): CAPAOverviewData => {
   const inProgress = capas.filter(c => c.status === 'in_progress').length;
   const pendingVerification = capas.filter(c => c.status === 'pending_verification').length;
   const escalated = capas.filter(c => c.status === 'escalated').length;
+  const expired = capas.filter(c => c.status === 'expired').length;
   const closed = capas.filter(c => ['closed', 'approved'].includes(c.status)).length;
 
   const overdueCapas = capas.filter(c => 
-    c.due_date < today && !['closed', 'approved'].includes(c.status)
+    c.due_date < today && !['closed', 'approved', 'expired'].includes(c.status)
   );
   const overdue = overdueCapas.length;
 
@@ -414,6 +416,7 @@ export const getCAPAOverview = (): CAPAOverviewData => {
     inProgress,
     pendingVerification,
     escalated,
+    expired,
     closed,
     overdue,
     topOverdue,

@@ -405,7 +405,7 @@ interface CAPAOverviewProps {
 }
 
 export const CAPAOverview: React.FC<CAPAOverviewProps> = ({ data }) => {
-  const total = data.open + data.inProgress + data.pendingVerification + data.escalated + data.closed;
+  const total = data.open + data.inProgress + data.pendingVerification + data.escalated + data.expired + data.closed;
   
   const getBarWidth = (value: number) => {
     if (total === 0) return 0;
@@ -417,6 +417,7 @@ export const CAPAOverview: React.FC<CAPAOverviewProps> = ({ data }) => {
     { key: 'inProgress', value: data.inProgress, color: '#3B82F6', label: 'In Progress' },
     { key: 'pendingVerification', value: data.pendingVerification, color: '#F59E0B', label: 'Pending Verification' },
     { key: 'escalated', value: data.escalated, color: '#FF8C00', label: 'Escalated' },
+    { key: 'expired', value: data.expired, color: '#EF4444', label: 'Expired' },
     { key: 'closed', value: data.closed, color: '#10B981', label: 'Closed' },
   ];
 
@@ -443,6 +444,10 @@ export const CAPAOverview: React.FC<CAPAOverviewProps> = ({ data }) => {
           <div className="p-3 bg-muted/50 rounded-lg">
             <p className="text-xl font-semibold text-orange-500">{data.escalated}</p>
             <p className="text-xs text-muted-foreground">Escalated</p>
+          </div>
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xl font-semibold text-red-500">{data.expired}</p>
+            <p className="text-xs text-muted-foreground">Expired</p>
           </div>
         </div>
 

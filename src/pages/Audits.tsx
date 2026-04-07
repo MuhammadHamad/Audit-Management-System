@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarPlus, Search, MoreVertical, List, CalendarDays, Pencil, X, Play, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -49,6 +49,7 @@ import { fetchTemplates } from '@/lib/templateSupabase';
 import { fetchAudits, updateAudit, deleteAudit } from '@/lib/auditSupabase';
 import { QUERY_KEYS, invalidateAudits } from '@/lib/queryConfig';
 import { supabase } from '@/integrations/supabase/client';
+import { useBCKs, useBranches, useSuppliers } from '@/hooks/useDashboardData';
 
 const ITEMS_PER_PAGE = 25;
 
@@ -115,6 +116,11 @@ export default function AuditsPage() {
   const queryClient = useQueryClient();
   const isAuditor = user?.role === 'auditor';
   const canManageAudits = !!user && ['super_admin', 'head_of_quality', 'audit_manager'].includes(user.role);
+
+  const { data: branches = [] } = useBranches();
+  const { data: bcks = [] } = useBCKs();
+  const { data: suppliers = [] } = useSuppliers();
+  const [entityNameOverrides, setEntityNameOverrides] = useState<Record<string, string>>({});
 
   const { data: templates = [] } = useQuery({
     queryKey: ['templates'],
@@ -219,9 +225,110 @@ export default function AuditsPage() {
   }, [allAudits, user]);
 
   const getEntityNameSafe = (entityType: string, entityId: string): string => {
-    // Fallback until the audits list is joined to entities.
+    const overrideKey = `${entityType}:${entityId}`;
+    const override = entityNameOverrides[overrideKey];
+    if (override) return override;
+
+    if (entityType === 'branch') {
+      const found = branches.find(b => b.id === entityId);
+      if (found) return found.name;
+      if (branches.length === 1) return branches[0].name;
+      return `BRANCH ${entityId.slice(0, 8)}`;
+    }
+    if (entityType === 'bck') {
+      const found = bcks.find(b => b.id === entityId);
+      if (found) return found.name;
+      if (bcks.length === 1) return bcks[0].name;
+      return `BCK ${entityId.slice(0, 8)}`;
+    }
+    if (entityType === 'supplier') {
+      const found = suppliers.find(s => s.id === entityId);
+      if (found) return found.name;
+      if (suppliers.length === 1) return suppliers[0].name;
+      return `SUPPLIER ${entityId.slice(0, 8)}`;
+    }
     return `${entityType.toUpperCase()} ${entityId.slice(0, 8)}`;
   };
+
+  useEffect(() => {
+    const unknowns = new Map<string, { entity_type: string; entity_id: string }>();
+
+    for (const a of allAudits) {
+      const key = `${a.entity_type}:${a.entity_id}`;
+      if (entityNameOverrides[key]) continue;
+      const name = getEntityNameSafe(a.entity_type, a.entity_id);
+      if (name.startsWith('BRANCH ') || name.startsWith('BCK ') || name.startsWith('SUPPLIER ')) {
+        unknowns.set(key, { entity_type: a.entity_type, entity_id: a.entity_id });
+      }
+    }
+
+    if (unknowns.size === 0) return;
+
+    let cancelled = false;
+    const fetchMissing = async () => {
+      const byType = {
+        branch: new Map<string, string[]>(),
+        bck: new Map<string, string[]>(),
+        supplier: new Map<string, string[]>(),
+      } as const;
+
+      for (const [key, { entity_type, entity_id }] of unknowns.entries()) {
+        if (entity_type === 'branch') byType.branch.set(entity_id, [...(byType.branch.get(entity_id) ?? []), key]);
+        if (entity_type === 'bck') byType.bck.set(entity_id, [...(byType.bck.get(entity_id) ?? []), key]);
+        if (entity_type === 'supplier') byType.supplier.set(entity_id, [...(byType.supplier.get(entity_id) ?? []), key]);
+      }
+
+      const applyRows = (rows: Array<{ id: string; name: string }>, keysById: Map<string, string[]>) => {
+        if (rows.length === 0) return;
+        setEntityNameOverrides(prev => {
+          const next = { ...prev };
+          for (const r of rows) {
+            const keys = keysById.get(r.id) ?? [];
+            for (const k of keys) next[k] = r.name;
+          }
+          return next;
+        });
+      };
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.branch.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('branches').select('id,name').in('id', ids);
+          if (!error) applyRows((data ?? []) as any, byType.branch);
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.bck.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('bcks').select('id,name').in('id', ids);
+          if (!error) applyRows((data ?? []) as any, byType.bck);
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (cancelled) return;
+        const ids = Array.from(byType.supplier.keys());
+        if (ids.length > 0) {
+          const { data, error } = await supabase.from('suppliers').select('id,name').in('id', ids);
+          if (!error) applyRows((data ?? []) as any, byType.supplier);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void fetchMissing();
+    return () => {
+      cancelled = true;
+    };
+  }, [allAudits, branches, bcks, suppliers, entityNameOverrides]);
 
   // Filter audits
   const filteredAudits = visibleAudits.filter(audit => {
@@ -465,13 +572,13 @@ export default function AuditsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Audit Code</TableHead>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Template</TableHead>
-                  <TableHead>Auditor</TableHead>
-                  <TableHead>Scheduled</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Score</TableHead>
+                  <TableHead className="text-xs">Audit Code</TableHead>
+                  <TableHead className="text-xs">Entity</TableHead>
+                  <TableHead className="text-xs">Template</TableHead>
+                  {!isAuditor && <TableHead className="text-xs">Auditor</TableHead>}
+                  <TableHead className="text-xs">Scheduled</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs">Score</TableHead>
                   <TableHead className="w-[60px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -479,7 +586,7 @@ export default function AuditsPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: isAuditor ? 7 : 8 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-4 w-full" />
                         </TableCell>
@@ -488,7 +595,7 @@ export default function AuditsPage() {
                   ))
                 ) : paginatedAudits.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center">
+                    <TableCell colSpan={isAuditor ? 7 : 8} className="h-24 text-center">
                       <p className="text-muted-foreground">
                         {allAudits.length === 0 
                           ? 'No audits yet. Create an audit plan or schedule a one-time audit.'
@@ -504,38 +611,42 @@ export default function AuditsPage() {
                       return (
                       <TableRow 
                         key={audit.id}
-                        className="cursor-pointer hover:bg-muted/50"
+                        className="cursor-pointer hover:bg-muted/40 transition-colors"
                         onClick={() => navigate(`/audits/${audit.id}`)}
                       >
                         <TableCell>
-                          <span className="font-semibold">{audit.audit_code}</span>
+                          <span className="font-mono text-xs whitespace-nowrap">{audit.audit_code}</span>
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p>{getEntityNameSafe(audit.entity_type, audit.entity_id)}</p>
-                            <Badge variant="secondary" className={ENTITY_TYPE_COLORS[audit.entity_type]}>
+                            <p className="text-sm max-w-[260px] truncate">{getEntityNameSafe(audit.entity_type, audit.entity_id)}</p>
+                            <Badge variant="secondary" className={ENTITY_TYPE_COLORS[audit.entity_type] + ' text-[10px] uppercase tracking-wide mt-1'}>
                               {audit.entity_type.charAt(0).toUpperCase() + audit.entity_type.slice(1)}
                             </Badge>
                           </div>
                         </TableCell>
-                        <TableCell>{getTemplateName(audit.template_id)}</TableCell>
+                        <TableCell className="text-sm">{getTemplateName(audit.template_id)}</TableCell>
+                        {!isAuditor && (
+                          <TableCell>
+                            <span className={(!audit.auditor_id ? 'text-muted-foreground ' : '') + 'text-sm'}>
+                              {getAuditorName(audit.auditor_id)}
+                            </span>
+                          </TableCell>
+                        )}
                         <TableCell>
-                          <span className={!audit.auditor_id ? 'text-muted-foreground' : ''}>
-                            {getAuditorName(audit.auditor_id)}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className={isOverdue ? 'text-destructive' : ''}>
+                          <span className={(isOverdue ? 'text-destructive ' : '') + 'text-sm whitespace-nowrap'}>
                             {format(new Date(audit.scheduled_date), 'MMM d, yyyy')}
                           </span>
                         </TableCell>
                         <TableCell>
-                          <Badge className={STATUS_COLORS[effectiveStatus] || STATUS_COLORS[audit.status]}>
+                          <Badge className={(STATUS_COLORS[effectiveStatus] || STATUS_COLORS[audit.status]) + ' text-[10px] uppercase tracking-wide'}>
                             {STATUS_LABELS[effectiveStatus] || STATUS_LABELS[audit.status]}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {audit.score !== undefined ? `${audit.score.toFixed(1)}%` : '—'}
+                          <span className="text-sm whitespace-nowrap tabular-nums">
+                            {audit.score !== undefined ? `${audit.score.toFixed(1)}%` : '—'}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>

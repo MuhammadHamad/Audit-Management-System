@@ -332,11 +332,12 @@ export const calculateCAPAOverview = (
   const inProgress = capas.filter(c => c.status === 'in_progress').length;
   const pendingVerification = capas.filter(c => c.status === 'pending_verification').length;
   const escalated = capas.filter(c => c.status === 'escalated').length;
+  const expired = capas.filter(c => c.status === 'expired').length;
   const closed = capas.filter(c => c.status === 'closed').length;
 
   // Overdue CAPAs
   const overdueCapas = capas.filter(c => {
-    if (!c.due_date || ['closed', 'approved'].includes(c.status)) return false;
+    if (!c.due_date || ['closed', 'approved', 'expired'].includes(c.status)) return false;
     return new Date(c.due_date) < now;
   });
   const overdue = overdueCapas.length;
@@ -361,6 +362,7 @@ export const calculateCAPAOverview = (
     inProgress,
     pendingVerification,
     escalated,
+    expired,
     closed,
     overdue,
     topOverdue,
