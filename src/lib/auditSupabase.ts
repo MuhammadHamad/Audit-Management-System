@@ -299,7 +299,9 @@ export async function fetchAudits(): Promise<Audit[]> {
   const { data, error } = await supabase
     .from('audits')
     .select('*')
-    .order('scheduled_date', { ascending: false });
+    .order('scheduled_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
   
   if (error) throw error;
   return (data ?? []).map(mapAudit);
@@ -385,7 +387,9 @@ export async function fetchAuditsByStatus(status: AuditStatus): Promise<Audit[]>
     .from('audits')
     .select('*')
     .eq('status', status)
-    .order('scheduled_date', { ascending: false });
+    .order('scheduled_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
   
   if (error) throw error;
   return (data ?? []).map(mapAudit);
@@ -396,7 +400,9 @@ export async function fetchAuditsByEntityId(entityId: string): Promise<Audit[]> 
     .from('audits')
     .select('*')
     .eq('entity_id', entityId)
-    .order('scheduled_date', { ascending: false });
+    .order('scheduled_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
   
   if (error) throw error;
   return (data ?? []).map(mapAudit);
@@ -407,7 +413,9 @@ export async function fetchAuditsByAuditorId(auditorId: string): Promise<Audit[]
     .from('audits')
     .select('*')
     .eq('auditor_id', auditorId)
-    .order('scheduled_date', { ascending: false });
+    .order('scheduled_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
   
   if (error) throw error;
   return (data ?? []).map(mapAudit);
