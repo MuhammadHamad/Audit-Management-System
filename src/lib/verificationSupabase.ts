@@ -3,6 +3,7 @@ import type { Audit } from '@/lib/auditStorage';
 import type { CAPA, Finding, SubTask, CAPAStatus, CAPAPriority } from '@/lib/auditExecutionStorage';
 import { fetchAuditsByStatus, updateAudit } from '@/lib/auditSupabase';
 import { createSignedAuditEvidenceUrls, fetchCAPAsByAuditId, fetchFindingsByAuditId } from '@/lib/executionSupabase';
+import { fetchTemplateById } from '@/lib/templateSupabase';
 import { 
   fetchBCKs, 
   fetchBranches, 
@@ -320,10 +321,196 @@ export async function fetchCAPAActivitiesByCAPAId(capaId: string): Promise<CAPAA
   return res[capaId] || [];
 }
 
+type ScoringTemplateItem = {
+  id: string;
+  points: number;
+  type: string;
+  critical?: boolean;
+};
+
+type ScoringTemplateSection = {
+  id: string;
+  name: string;
+  weight: number;
+  items: ScoringTemplateItem[];
+};
+
+type ScoringConfig = {
+  weighted?: boolean;
+  pass_threshold: number;
+  critical_fail_rule?: boolean;
+};
+
+function isCriticalFail(
+  item: ScoringTemplateItem,
+  response: any
+): boolean {
+  if (!item?.critical) return false;
+  if (!response) return false;
+
+  const value = response.value;
+  if (item.type === 'pass_fail') return value === 'fail';
+  if (item.type === 'rating' && typeof value === 'number') return value === 1;
+  if (item.type === 'checklist' && typeof value === 'object' && value !== null) {
+    return Object.values(value as Record<string, boolean>).some(v => !v);
+  }
+  return false;
+}
+
+async function recalculateAndPersistAuditScore(auditId: string): Promise<void> {
+  const { data: auditRow, error: auditErr } = await supabase
+    .from('audits')
+    .select('id,template_id')
+    .eq('id', auditId)
+    .maybeSingle();
+
+  if (auditErr) throw auditErr;
+  if (!auditRow) throw new Error('Audit not found');
+
+  const template = await fetchTemplateById((auditRow as any).template_id);
+  if (!template?.checklist_json) return;
+
+  const scoringConfig = (template as any).scoring_config as ScoringConfig | undefined;
+  if (!scoringConfig) return;
+
+  const { data: auditResultsRows, error: resultsErr } = await supabase
+    .from('audit_results')
+    .select('item_id,response,points_earned')
+    .eq('audit_id', auditId);
+
+  if (resultsErr) throw resultsErr;
+
+  const { data: capaRows, error: capaErr } = await supabase
+    .from('capa')
+    .select('id,finding_id,due_date,status')
+    .eq('audit_id', auditId)
+    .in('status', ['closed', 'approved']);
+
+  if (capaErr) throw capaErr;
+
+  const capaIds = (capaRows ?? []).map((c: any) => c.id as string);
+  const findingIds = Array.from(
+    new Set(
+      (capaRows ?? [])
+        .map((c: any) => c.finding_id as string | null | undefined)
+        .filter((id): id is string => !!id)
+    )
+  );
+
+  const [{ data: actRows, error: actErr }, { data: findingRows, error: findingErr }] = await Promise.all([
+    capaIds.length
+      ? supabase
+          .from('capa_activity')
+          .select('capa_id,action,created_at')
+          .in('capa_id', capaIds)
+          .in('action', ['approved', 'auto_approved', 'audit_finalized'])
+      : Promise.resolve({ data: [], error: null } as any),
+    findingIds.length
+      ? supabase.from('findings').select('id,item_id').in('id', findingIds)
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+
+  if (actErr) throw actErr;
+  if (findingErr) throw findingErr;
+
+  const approvedAtByCapaId = new Map<string, string>();
+  for (const r of actRows ?? []) {
+    const id = (r as any).capa_id as string;
+    const createdAt = (r as any).created_at as string;
+    const existing = approvedAtByCapaId.get(id);
+    if (!existing || String(createdAt) < String(existing)) {
+      approvedAtByCapaId.set(id, createdAt);
+    }
+  }
+
+  const itemIdByFindingId = new Map<string, string>();
+  for (const f of findingRows ?? []) {
+    itemIdByFindingId.set((f as any).id as string, (f as any).item_id as string);
+  }
+
+  const onTimeApprovedItemIds = new Set<string>();
+  for (const c of capaRows ?? []) {
+    const due = (c as any).due_date as string | null | undefined;
+    const findingId = (c as any).finding_id as string | null | undefined;
+    const approvedAt = approvedAtByCapaId.get((c as any).id as string);
+    if (!findingId) continue;
+    const itemId = itemIdByFindingId.get(findingId);
+    if (!itemId) continue;
+    if (!due || !approvedAt) {
+      onTimeApprovedItemIds.add(itemId);
+      continue;
+    }
+    if (String(approvedAt) <= `${due}T23:59:59`) {
+      onTimeApprovedItemIds.add(itemId);
+    }
+  }
+
+  const resultsByItemId = new Map<string, { response: any; points_earned: number }>();
+  for (const r of auditResultsRows ?? []) {
+    resultsByItemId.set((r as any).item_id as string, {
+      response: (r as any).response,
+      points_earned: Number((r as any).points_earned ?? 0),
+    });
+  }
+
+  const sections = ((template as any).checklist_json?.sections ?? []) as ScoringTemplateSection[];
+  const weighted = !!scoringConfig.weighted;
+  let criticalFail = false;
+
+  if (scoringConfig.critical_fail_rule) {
+    for (const section of sections) {
+      for (const item of section.items) {
+        if (!item?.critical) continue;
+        if (onTimeApprovedItemIds.has(item.id)) continue;
+        const r = resultsByItemId.get(item.id);
+        if (isCriticalFail(item, r?.response)) {
+          criticalFail = true;
+        }
+      }
+    }
+  }
+
+  const sectionScores: Array<{ earned: number; max: number; weight: number; pct: number }> = [];
+  for (const section of sections) {
+    let earned = 0;
+    let max = 0;
+    for (const item of section.items) {
+      max += Number(item.points ?? 0);
+      if (onTimeApprovedItemIds.has(item.id)) {
+        earned += Number(item.points ?? 0);
+      } else {
+        earned += resultsByItemId.get(item.id)?.points_earned ?? 0;
+      }
+    }
+    const pct = max > 0 ? (earned / max) * 100 : 0;
+    sectionScores.push({ earned, max, weight: Number(section.weight ?? 0), pct });
+  }
+
+  let totalScore = 0;
+  if (weighted) {
+    totalScore = sectionScores.reduce((acc, s) => acc + (s.pct * s.weight) / 100, 0);
+  } else {
+    const totalEarned = sectionScores.reduce((acc, s) => acc + s.earned, 0);
+    const totalMax = sectionScores.reduce((acc, s) => acc + s.max, 0);
+    totalScore = totalMax > 0 ? (totalEarned / totalMax) * 100 : 0;
+  }
+
+  const passFail: 'pass' | 'fail' = criticalFail
+    ? 'fail'
+    : totalScore >= Number(scoringConfig.pass_threshold ?? 0)
+      ? 'pass'
+      : 'fail';
+
+  await updateAudit(auditId, {
+    score: totalScore,
+    pass_fail: passFail,
+  });
+}
+
 export async function approveCAPA(capaId: string, verifierId: string): Promise<void> {
   const { data: capa, error: capaErr } = await supabase
     .from('capa')
-    .select('id,finding_id,entity_type,entity_id')
+    .select('id,finding_id,entity_type,entity_id,audit_id')
     .eq('id', capaId)
     .single();
 
@@ -367,6 +554,15 @@ export async function approveCAPA(capaId: string, verifierId: string): Promise<v
     }
   } catch (e) {
     console.error('Failed to recalculate entity score after CAPA approval', e);
+  }
+
+  try {
+    const auditId = (capa as any)?.audit_id as string | undefined;
+    if (auditId) {
+      await recalculateAndPersistAuditScore(auditId);
+    }
+  } catch (e) {
+    console.error('Failed to recalculate audit score after CAPA approval', e);
   }
 }
 

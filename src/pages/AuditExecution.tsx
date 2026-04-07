@@ -38,6 +38,7 @@ export default function AuditExecution() {
   const queryClient = useQueryClient();
   const [isExportingAudit, setIsExportingAudit] = useState(false);
   const [resolvedEntityName, setResolvedEntityName] = useState<string>('');
+  const [effectiveStatus, setEffectiveStatus] = useState<string>('');
 
   const {
     audit,
@@ -224,6 +225,53 @@ export default function AuditExecution() {
     };
   }, [audit?.entity_type, audit?.entity_id]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!audit?.id) return;
+
+      if (audit.status !== 'pending_verification') {
+        setEffectiveStatus(audit.status);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('capa')
+          .select('status,due_date,escalation_level,escalation_due_date,expired_at')
+          .eq('audit_id', audit.id);
+
+        if (error) throw error;
+
+        const rows = (data ?? []) as any[];
+        const today = new Date().toISOString().split('T')[0];
+
+        const isExpired = rows.some((r) => {
+          if (String(r.status) === 'expired') return true;
+          if (r.expired_at) return true;
+          const due = (Number(r.escalation_level ?? 0) > 0 && r.escalation_due_date)
+            ? String(r.escalation_due_date)
+            : String(r.due_date || '');
+          if (!due) return false;
+          return due < today && !['closed', 'approved'].includes(String(r.status));
+        });
+
+        const isEscalated = rows.some((r) => String(r.status) === 'escalated');
+
+        const next = isExpired ? 'expired' : isEscalated ? 'escalated' : audit.status;
+        if (!cancelled) setEffectiveStatus(next);
+      } catch (e) {
+        if (!cancelled) setEffectiveStatus(audit.status);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [audit?.id, audit?.status]);
+
   if (isLoading) {
     return (
       <div className="space-y-6 pb-24">
@@ -256,10 +304,12 @@ export default function AuditExecution() {
     in_progress: 'border-sky-300/60 bg-sky-500/10 text-sky-700 dark:text-sky-200',
     submitted: 'border-amber-300/60 bg-amber-500/10 text-amber-700 dark:text-amber-200',
     pending_verification: 'border-orange-300/60 bg-orange-500/10 text-orange-700 dark:text-orange-200',
+    escalated: 'border-purple-300/60 bg-purple-500/10 text-purple-700 dark:text-purple-200',
+    expired: 'border-rose-300/60 bg-rose-500/10 text-rose-700 dark:text-rose-200',
     approved: 'border-emerald-300/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200',
     rejected: 'border-rose-300/60 bg-rose-500/10 text-rose-700 dark:text-rose-200',
     overdue: 'border-rose-300/60 bg-rose-500/10 text-rose-700 dark:text-rose-200',
-    cancelled: 'border-slate-300/60 bg-slate-500/10 text-slate-500 line-through',
+    cancelled: 'border-slate-300/60 bg-slate-500/10 text-slate-500 dark:text-slate-400',
   };
 
   const entityTypeBadgeColors: Record<string, string> = {
@@ -292,10 +342,10 @@ export default function AuditExecution() {
                   <Badge
                     className={cn(
                       'h-5 px-2 text-[10px] font-medium rounded-md border shrink-0 uppercase tracking-wide',
-                      statusColors[audit.status]
+                      statusColors[(effectiveStatus || audit.status) as keyof typeof statusColors] || statusColors[audit.status]
                     )}
                   >
-                    {audit.status.replace('_', ' ').toUpperCase()}
+                    {(effectiveStatus || audit.status).replace('_', ' ').toUpperCase()}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">

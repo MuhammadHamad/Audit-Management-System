@@ -48,6 +48,7 @@ import { getUserById, getUsersByRole } from '@/lib/entityStorage';
 import { fetchTemplates } from '@/lib/templateSupabase';
 import { fetchAudits, updateAudit, deleteAudit } from '@/lib/auditSupabase';
 import { QUERY_KEYS, invalidateAudits } from '@/lib/queryConfig';
+import { supabase } from '@/integrations/supabase/client';
 
 const ITEMS_PER_PAGE = 25;
 
@@ -62,6 +63,8 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   submitted: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
   pending_verification: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  escalated: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  expired: 'bg-destructive/10 text-destructive',
   approved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   rejected: 'bg-destructive/10 text-destructive',
   overdue: 'bg-destructive/10 text-destructive',
@@ -73,10 +76,36 @@ const STATUS_LABELS: Record<string, string> = {
   in_progress: 'In Progress',
   submitted: 'Submitted',
   pending_verification: 'Pending Verification',
+  escalated: 'Escalated',
+  expired: 'Expired',
   approved: 'Approved',
   rejected: 'Rejected',
   overdue: 'Overdue',
   cancelled: 'Cancelled',
+};
+
+const getEffectiveAuditStatus = (
+  audit: Audit,
+  capaRows: Array<{ status: string; due_date?: string | null; escalation_level?: number | null; escalation_due_date?: string | null; expired_at?: string | null }>
+): string => {
+  if (audit.status !== 'pending_verification') return audit.status;
+  const today = new Date().toISOString().split('T')[0];
+
+  const isExpired = capaRows.some((r) => {
+    if (String(r.status) === 'expired') return true;
+    if (r.expired_at) return true;
+    const due = (Number(r.escalation_level ?? 0) > 0 && r.escalation_due_date)
+      ? String(r.escalation_due_date)
+      : String(r.due_date || '');
+    if (!due) return false;
+    return due < today && !['closed', 'approved'].includes(String(r.status));
+  });
+  if (isExpired) return 'expired';
+
+  const isEscalated = capaRows.some((r) => String(r.status) === 'escalated');
+  if (isEscalated) return 'escalated';
+
+  return audit.status;
 };
 
 export default function AuditsPage() {
@@ -201,14 +230,66 @@ export default function AuditsPage() {
       audit.audit_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       entityName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesEntityType = entityTypeFilter === 'all' || audit.entity_type === entityTypeFilter;
-    const matchesStatus = statusFilter === 'all' || audit.status === statusFilter;
     const matchesAuditor = auditorFilter === 'all' || audit.auditor_id === auditorFilter;
-    return matchesSearch && matchesEntityType && matchesStatus && matchesAuditor;
+    return matchesSearch && matchesEntityType && matchesAuditor;
   });
 
+  const auditIdsForCapa = useMemo(() => {
+    return Array.from(new Set(filteredAudits.map(a => a.id)));
+  }, [filteredAudits]);
+
+  type CapaStatusRow = {
+    status: string;
+    due_date?: string | null;
+    escalation_level?: number | null;
+    escalation_due_date?: string | null;
+    expired_at?: string | null;
+  };
+
+  const { data: capasByAuditId = new Map<string, CapaStatusRow[]>() } = useQuery({
+    queryKey: ['auditCapaStatusByAuditId', auditIdsForCapa],
+    queryFn: async () => {
+      if (auditIdsForCapa.length === 0) return new Map<string, CapaStatusRow[]>();
+      const { data, error } = await supabase
+        .from('capa')
+        .select('audit_id,status,due_date,escalation_level,escalation_due_date,expired_at')
+        .in('audit_id', auditIdsForCapa);
+      if (error) throw error;
+
+      const map = new Map<string, CapaStatusRow[]>();
+      for (const row of data ?? []) {
+        const aid = (row as any).audit_id as string;
+        const arr = map.get(aid) ?? [];
+        arr.push({
+          status: String((row as any).status),
+          due_date: (row as any).due_date ?? null,
+          escalation_level: (row as any).escalation_level ?? null,
+          escalation_due_date: (row as any).escalation_due_date ?? null,
+          expired_at: (row as any).expired_at ?? null,
+        });
+        map.set(aid, arr);
+      }
+      return map;
+    },
+    enabled: auditIdsForCapa.length > 0,
+    staleTime: 30 * 1000,
+  });
+
+  const auditsWithEffectiveStatus = useMemo(() => {
+    return filteredAudits.map((audit) => {
+      const effectiveStatus = getEffectiveAuditStatus(audit, capasByAuditId.get(audit.id) ?? []);
+      return { audit, effectiveStatus };
+    });
+  }, [filteredAudits, capasByAuditId]);
+
+  const filteredByEffectiveStatus = useMemo(() => {
+    if (statusFilter === 'all') return auditsWithEffectiveStatus;
+    return auditsWithEffectiveStatus.filter(({ effectiveStatus }) => effectiveStatus === statusFilter);
+  }, [auditsWithEffectiveStatus, statusFilter]);
+
   // Pagination (for list view)
-  const totalPages = Math.ceil(filteredAudits.length / ITEMS_PER_PAGE);
-  const paginatedAudits = filteredAudits.slice(
+  const totalPages = Math.ceil(filteredByEffectiveStatus.length / ITEMS_PER_PAGE);
+  const paginatedAudits = filteredByEffectiveStatus.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -350,6 +431,8 @@ export default function AuditsPage() {
             <SelectItem value="in_progress">In Progress</SelectItem>
             <SelectItem value="submitted">Submitted</SelectItem>
             <SelectItem value="pending_verification">Pending Verification</SelectItem>
+            <SelectItem value="escalated">Escalated</SelectItem>
+            <SelectItem value="expired">Expired</SelectItem>
             <SelectItem value="approved">Approved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
@@ -414,8 +497,8 @@ export default function AuditsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedAudits.map((audit) => {
-                    const isOverdue = audit.status === 'overdue' || 
+                  paginatedAudits.map(({ audit, effectiveStatus }) => {
+                    const isOverdue = audit.status === 'overdue' ||
                       (audit.status === 'scheduled' && new Date(audit.scheduled_date) < new Date());
                     
                       return (
@@ -447,8 +530,8 @@ export default function AuditsPage() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <Badge className={STATUS_COLORS[audit.status]}>
-                            {STATUS_LABELS[audit.status]}
+                          <Badge className={STATUS_COLORS[effectiveStatus] || STATUS_COLORS[audit.status]}>
+                            {STATUS_LABELS[effectiveStatus] || STATUS_LABELS[audit.status]}
                           </Badge>
                         </TableCell>
                         <TableCell>
