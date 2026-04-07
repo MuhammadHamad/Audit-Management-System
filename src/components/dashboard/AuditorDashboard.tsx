@@ -31,11 +31,15 @@ function getEntityNameFromLists(
   return suppliers.find(s => s.id === entityId)?.name ?? 'Unknown Supplier';
 }
 
-const statusBadgeVariant = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
-  if (status === 'in_progress') return 'default';
-  if (status === 'scheduled') return 'secondary';
+const statusBadgeVariant = (
+  status: string
+): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' => {
+  if (status === 'scheduled') return 'warning';
+  if (status === 'in_progress') return 'info';
+  if (status === 'approved') return 'success';
   if (status === 'submitted' || status === 'pending_verification') return 'outline';
   if (status === 'rejected' || status === 'overdue') return 'destructive';
+  if (status === 'cancelled') return 'secondary';
   return 'outline';
 };
 

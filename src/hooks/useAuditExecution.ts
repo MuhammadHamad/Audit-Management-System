@@ -344,13 +344,11 @@ export function useAuditExecution(auditId: string) {
   }, []);
 
   const flushEvidenceUploads = useCallback(async (auditIdForPaths: string, templateForItems: AuditTemplate) => {
-    const nextMap = new Map(itemStates);
-
     const jobs: Array<{ itemId: string; file: File }> = [];
 
     for (const section of templateForItems.checklist_json.sections) {
       for (const item of section.items) {
-        const current = nextMap.get(item.id);
+        const current = itemStates.get(item.id);
         if (!current) continue;
         if (current.evidenceFiles.length === 0) continue;
 
@@ -361,8 +359,7 @@ export function useAuditExecution(auditId: string) {
     }
 
     if (jobs.length === 0) {
-      setItemStates(nextMap);
-      return nextMap;
+      return new Map(itemStates);
     }
 
     const uploadedByJobIdx: Array<{ itemId: string; path: string } | null> = new Array(jobs.length).fill(null);
@@ -409,19 +406,26 @@ export function useAuditExecution(auditId: string) {
       updatesByItemId.set(row.itemId, existing);
     }
 
-    for (const [itemId, update] of updatesByItemId) {
-      const current = nextMap.get(itemId);
-      if (!current) continue;
-      nextMap.set(itemId, {
-        ...current,
-        evidenceFiles: [],
-        evidencePaths: [...current.evidencePaths, ...update.paths],
-        evidenceUrls: [...current.evidenceUrls, ...update.urls],
-      });
-    }
+    let mergedOut: Map<string, AuditExecutionItemState> | null = null;
+    setItemStates(prev => {
+      const merged = new Map(prev);
 
-    setItemStates(nextMap);
-    return nextMap;
+      for (const [itemId, update] of updatesByItemId) {
+        const current = merged.get(itemId);
+        if (!current) continue;
+        merged.set(itemId, {
+          ...current,
+          evidenceFiles: [],
+          evidencePaths: [...current.evidencePaths, ...update.paths],
+          evidenceUrls: [...current.evidenceUrls, ...update.urls],
+        });
+      }
+
+      mergedOut = merged;
+      return merged;
+    });
+
+    return mergedOut ?? new Map(itemStates);
   }, [itemStates]);
 
   // Calculate points for an item

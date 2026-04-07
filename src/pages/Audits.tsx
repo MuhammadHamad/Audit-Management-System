@@ -60,7 +60,7 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  scheduled: 'bg-muted text-muted-foreground',
+  scheduled: 'bg-amber-100 text-amber-900 ring-1 ring-amber-500/30 dark:bg-amber-900/30 dark:text-amber-200 dark:ring-amber-400/25',
   in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   submitted: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
   pending_verification: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
