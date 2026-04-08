@@ -65,6 +65,57 @@ const mapBCK = (b: any): BCK => ({
   updated_at: b.updated_at ?? '',
 });
 
+const getLatestAuditInfoByEntity = async (
+  entityType: 'branch' | 'bck',
+  entityIds: string[]
+): Promise<Map<string, { lastAuditDate?: string; lastApprovedScore?: number }>> => {
+  const out = new Map<string, { lastAuditDate?: string; lastApprovedScore?: number }>();
+  if (entityIds.length === 0) return out;
+
+  const [latestAuditRes, latestApprovedRes] = await Promise.all([
+    supabase
+      .from('audits')
+      .select('entity_id, completed_at, scheduled_date, updated_at')
+      .eq('entity_type', entityType)
+      .neq('status', 'cancelled')
+      .in('entity_id', entityIds)
+      .order('completed_at', { ascending: false })
+      .order('scheduled_date', { ascending: false })
+      .order('updated_at', { ascending: false }),
+    supabase
+      .from('audits')
+      .select('entity_id, score, completed_at, updated_at')
+      .eq('entity_type', entityType)
+      .eq('status', 'approved')
+      .in('entity_id', entityIds)
+      .order('completed_at', { ascending: false })
+      .order('updated_at', { ascending: false }),
+  ]);
+
+  if (latestAuditRes.error) throw latestAuditRes.error;
+  if (latestApprovedRes.error) throw latestApprovedRes.error;
+
+  for (const a of latestAuditRes.data ?? []) {
+    const id = (a as any).entity_id as string | undefined;
+    if (!id) continue;
+    if (out.has(id) && out.get(id)?.lastAuditDate) continue;
+    const date = (a as any).completed_at || (a as any).scheduled_date || (a as any).updated_at;
+    if (!date) continue;
+    out.set(id, { ...(out.get(id) ?? {}), lastAuditDate: date });
+  }
+
+  for (const a of latestApprovedRes.data ?? []) {
+    const id = (a as any).entity_id as string | undefined;
+    if (!id) continue;
+    if (out.has(id) && out.get(id)?.lastApprovedScore != null) continue;
+    const score = (a as any).score;
+    if (score == null) continue;
+    out.set(id, { ...(out.get(id) ?? {}), lastApprovedScore: Number(score) });
+  }
+
+  return out;
+};
+
 const mapSupplier = (s: any): Supplier => ({
   id: s.id,
   supplier_code: s.code,
@@ -174,7 +225,17 @@ export async function deleteRegion(id: string): Promise<void> {
 export async function fetchBranches(): Promise<Branch[]> {
   const { data, error } = await supabase.from('branches').select('*').order('name');
   if (error) throw error;
-  return (data ?? []).map(mapBranch);
+  const base = (data ?? []).map(mapBranch);
+  const latest = await getLatestAuditInfoByEntity('branch', base.map((b) => b.id));
+  return base.map((b) => {
+    const a = latest.get(b.id);
+    if (!a) return b;
+    return {
+      ...b,
+      last_audit_date: a.lastAuditDate,
+      health_score: b.health_score > 0 ? b.health_score : Number(a.lastApprovedScore ?? 0),
+    };
+  });
 }
 
 export async function fetchBranchByCode(code: string): Promise<Branch | null> {
@@ -262,7 +323,17 @@ export async function deleteBranch(id: string): Promise<void> {
 export async function fetchBCKs(): Promise<BCK[]> {
   const { data, error } = await supabase.from('bcks').select('*').order('name');
   if (error) throw error;
-  return (data ?? []).map(mapBCK);
+  const base = (data ?? []).map(mapBCK);
+  const latest = await getLatestAuditInfoByEntity('bck', base.map((b) => b.id));
+  return base.map((b) => {
+    const a = latest.get(b.id);
+    if (!a) return b;
+    return {
+      ...b,
+      last_audit_date: a.lastAuditDate,
+      health_score: b.health_score > 0 ? b.health_score : Number(a.lastApprovedScore ?? 0),
+    };
+  });
 }
 
 export async function fetchBCKByCode(code: string): Promise<BCK | null> {
