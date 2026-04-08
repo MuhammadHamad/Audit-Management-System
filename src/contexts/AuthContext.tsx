@@ -101,6 +101,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
+  const ensureUserProfile = async (userId: string): Promise<User | null> => {
+    let profile = await fetchUserProfileWithRetry(userId);
+    if (profile) return profile;
+
+    try {
+      await supabase.rpc('ensure_user_profile' as any);
+    } catch (e) {
+      console.error('ensure_user_profile failed:', e);
+    }
+
+    profile = await fetchUserProfileWithRetry(userId);
+    return profile;
+  };
+
   // Fetch user role from user_roles table
   const fetchUserRole = async (userId: string): Promise<UserRole | null> => {
     try {
@@ -225,7 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error initializing cache:', e);
       }
 
-      const profile = await fetchUserProfileWithRetry(newSession.user.id);
+      const profile = await ensureUserProfile(newSession.user.id);
 
       if (isUnmounted || currentRequest !== requestId) return;
 
@@ -321,11 +335,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error initializing cache:', e);
       }
 
-      // Fetch user profile to verify they exist in our users table
-      const profile = await fetchUserProfileWithRetry(data.user.id);
-      
+      const profile = await ensureUserProfile(data.user.id);
+
       if (!profile) {
-        // User exists in auth but not in our users table
         await supabase.auth.signOut();
         setSession(null);
         setUser(null);
